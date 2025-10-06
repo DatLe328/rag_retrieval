@@ -88,45 +88,27 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
     multi_queries = generate_multi_queries(chat, user_query, n=multi_n)
 
     candidates: Dict[str, Dict[str, Any]] = {}
-    bm25_scores, vector_scores = [], []
-
-    # ✅ truyền embedder vào manager
     with WeaviateManager(host=weav_host, http_port=weav_port, grpc_port=weav_grpc, embedder=embedder) as mgr:
         for q in multi_queries:
-            # BM25
-            try:
-                hits_bm25 = mgr.search("Papers", q, "bm25", limit=50)
-            except Exception as e:
-                print("BM25 search error:", e)
-                hits_bm25 = []
+            # Chỉ cần một lệnh gọi duy nhất!
+            hits = mgr.hybrid_search("Papers", q, alpha=alpha, limit=50)
 
-            # Vector (manager tự embed text query)
-            try:
-                hits_vec = mgr.search("Papers", q, "vector", limit=50)
-            except Exception as e:
-                print("Vector search error:", e)
-                hits_vec = []
-
-            for h in hits_bm25 + hits_vec:
-                doc = candidate_to_doc_obj(h)
-                if not doc["id"]:
-                    doc["id"] = f"hash_{hash(json.dumps(doc))}"
-                existing = candidates.get(doc["id"])
-                if existing:
-                    if doc["bm25_score"]:
-                        existing["bm25_score"] = max(existing.get("bm25_score", 0), doc["bm25_score"])
-                    if doc["vector_score"]:
-                        existing["vector_score"] = max(existing.get("vector_score", 0), doc["vector_score"])
-                else:
-                    candidates[doc["id"]] = doc
-                if doc["bm25_score"]: bm25_scores.append(doc["bm25_score"])
-                if doc["vector_score"]: vector_scores.append(doc["vector_score"])
-
-    max_bm25 = max(bm25_scores) if bm25_scores else 0
-    for d in candidates.values():
-        d["bm25_score"] = d.get("bm25_score") or 0
-        d["vector_score"] = max(0.0, min(1.0, d.get("vector_score") or 0))
-        d["combined_score"] = combine_scores(d["vector_score"], d["bm25_score"], max_bm25, alpha)
+            for h in hits:
+                doc_id = h["id"]
+                # Khử trùng lặp giữa các truy vấn con, giữ lại kết quả có điểm cao nhất
+                if doc_id not in candidates or h["combined_score"] > candidates[doc_id]["combined_score"]:
+                    # Lấy thông tin properties
+                    props = h.get("properties", {})
+                    candidates[doc_id] = {
+                        "id": doc_id,
+                        "title": props.get("title"),
+                        "abstract": props.get("abstract"),
+                        "keywords": props.get("keywords"),
+                        "text": props.get("text"),
+                        "bm25_score": h["bm25_score"],
+                        "vector_score": h["vector_score"],
+                        "combined_score": h["combined_score"],
+                    }
 
     top_candidates = sorted(candidates.values(), key=lambda x: x["combined_score"], reverse=True)[:200]
 
