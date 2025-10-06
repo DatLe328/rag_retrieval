@@ -1,6 +1,7 @@
 import os
 from application import create_app
 from rag_retrieval.config.settings import Settings
+
 app = create_app()
 
 if __name__ == "__main__":

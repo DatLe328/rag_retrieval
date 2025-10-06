@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
 
+
 class BaseEmbedder(ABC):
     def __init__(self, model_name: str, **kwargs):
         self.model_name = model_name
@@ -23,6 +24,7 @@ class BaseLLMModel(ABC):
     @abstractmethod
     def generate(self, user_prompt: str, system_prompt: Optional[str] = None) -> str:
         pass
+
 
 class BaseReranker(ABC):
     def __init__(self, model_name: str, **kwargs):

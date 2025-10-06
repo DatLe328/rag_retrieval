@@ -2,8 +2,13 @@ import json, math
 from typing import List, Dict, Any
 from rag_retrieval.db.weaviate_db import WeaviateManager
 from rag_retrieval.model.model_factory import get_embedder, get_chat_model, get_reranker
+import warnings
+warnings.filterwarnings("ignore", message=".*XLMRobertaTokenizerFast.*")
+warnings.filterwarnings("ignore", message=".*swigvarlink.*")
+warnings.filterwarnings("ignore", message=".*torch_dtype.*deprecated.*")
 
 _embedder, _chat_model, _reranker = None, None, None
+
 
 def get_embedder_instance(provider, model):
     global _embedder
@@ -23,11 +28,12 @@ def get_reranker_instance(provider, model):
         _reranker = get_reranker(provider=provider, model_name=model)
     return _reranker
 
-# --- helpers ---
+
 def generate_multi_queries(chat_model, user_query: str, n: int = 5) -> List[str]:
     system_prompt = (
         "You are a query rewriting assistant. Given a user query, produce multiple alternative, "
         "concise search queries that help retrieve diverse relevant documents. "
+        "Each query should explore different aspects, perspectives, or formulations."
         "Output exactly the queries, one per line."
     )
     user_prompt = f"User query: {user_query}\n\nGenerate {n} alternative queries:"
@@ -47,11 +53,15 @@ def generate_multi_queries(chat_model, user_query: str, n: int = 5) -> List[str]
             break
     if not lines:
         lines = [user_query] + [user_query + f" {i}" for i in range(1, n)]
+    print("DEBUG services.generate_multi_queries")
+    print(lines)
     return lines[:n]
+
 
 def combine_scores(vector_score, bm25_score, bm25_max, alpha: float) -> float:
     bm25_norm = (bm25_score / bm25_max) if bm25_max > 0 else 0.0
     return alpha * (vector_score or 0.0) + (1 - alpha) * bm25_norm
+
 
 def candidate_to_doc_obj(hit: Dict[str, Any]) -> Dict[str, Any]:
     uid = hit.get("uuid")
@@ -63,10 +73,10 @@ def candidate_to_doc_obj(hit: Dict[str, Any]) -> Dict[str, Any]:
         "keywords": props.get("keywords"),
         "text": props.get("text"),
         "bm25_score": hit.get("score"),
-        "vector_score": 1 - hit["distance"] if "distance" in hit else None,
+        "vector_score": hit.get("score") if "score" in hit else (1 - hit["distance"] if "distance" in hit else None),
     }
 
-# --- main RAG pipeline ---
+
 def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
                  weav_host: str, weav_port: int, weav_grpc: int,
                  embedder_conf: tuple, chat_conf: tuple, reranker_conf: tuple) -> Dict[str, Any]:
@@ -80,18 +90,21 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
     candidates: Dict[str, Dict[str, Any]] = {}
     bm25_scores, vector_scores = [], []
 
-    with WeaviateManager(host=weav_host, port=weav_port, grpc_port=weav_grpc) as mgr:
+    # ✅ truyền embedder vào manager
+    with WeaviateManager(host=weav_host, http_port=weav_port, grpc_port=weav_grpc, embedder=embedder) as mgr:
         for q in multi_queries:
             # BM25
             try:
                 hits_bm25 = mgr.search("Papers", q, "bm25", limit=50)
-            except:
+            except Exception as e:
+                print("BM25 search error:", e)
                 hits_bm25 = []
-            # Vector
+
+            # Vector (manager tự embed text query)
             try:
-                q_vec = embedder.get_embedding(q)
-                hits_vec = mgr.search("Papers", q_vec, "vector", limit=50)
-            except:
+                hits_vec = mgr.search("Papers", q, "vector", limit=50)
+            except Exception as e:
+                print("Vector search error:", e)
                 hits_vec = []
 
             for h in hits_bm25 + hits_vec:
@@ -124,7 +137,8 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
 
     try:
         rerank_results = reranker.rerank(user_query, docs_text, top_k=top_k)
-    except:
+    except Exception as e:
+        print("Reranker error:", e)
         rerank_results = [(i, d["combined_score"], docs_text[i]) for i, d in enumerate(top_candidates[:top_k])]
 
     final = []
