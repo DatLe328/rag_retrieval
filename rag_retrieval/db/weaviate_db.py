@@ -2,35 +2,37 @@ import weaviate
 import weaviate.classes as wvc
 from weaviate.classes.config import Configure, Property, DataType
 from weaviate.classes.query import MetadataQuery
+from weaviate.classes.init import AdditionalConfig
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 
 
 class WeaviateManager:
-    """Quản lý gọn cho Weaviate v4 (hỗ trợ embedder chung)."""
-
-    def __init__(self, host="localhost", port=8080, grpc_port=50051, headers=None, embedder=None):
-        self.connection_params = {
-            "host": host,
-            "port": port,
-            "grpc_port": grpc_port,
-            "headers": headers or {}
-        }
+    def __init__(self, host="localhost", http_port=8080, grpc_port=50051, embedder=None):
+        self.host = host
+        self.http_port = http_port
+        self.grpc_port = grpc_port
+        self.embedder = embedder
         self.client = None
-        self.embedder = embedder  # ✅ Gắn embedder vào manager
 
     def __enter__(self):
         try:
-            http_host = f"http://{self.connection_params['host']}:{self.connection_params['port']}"
             self.client = weaviate.connect_to_custom(
-                http_host=http_host,
-                grpc_host=f"{self.connection_params['host']}:{self.connection_params['grpc_port']}",
-                headers=self.connection_params.get("headers", {}),
+                http_host=self.host,
+                http_port=self.http_port,
+                http_secure=False,
+                grpc_host=self.host,
+                grpc_port=self.grpc_port,
+                grpc_secure=False,
+                additional_config=AdditionalConfig(timeout=(10, 60)),
             )
-            print(f"✅ Đã kết nối Weaviate tại {http_host}")
+            return self
         except Exception as e:
             raise ConnectionError(f"Không thể kết nối tới Weaviate: {e}")
-        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.client:
+            self.client.close()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.client:
@@ -84,7 +86,7 @@ class WeaviateManager:
         query: Any,
         search_type: str = "vector",
         limit: int = 5,
-        properties: List[str] = ["title", "abstract", "keywords", "created_date"]
+        properties: List[str] = ["title", "abstract", "keywords", "text"]
     ) -> List[Dict]:
         """Trả về list gồm uuid, properties, score (càng cao càng tốt)."""
         collection = self.client.collections.get(collection_name)
