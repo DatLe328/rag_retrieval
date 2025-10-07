@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import "bootstrap/dist/css/bootstrap.min.css";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -7,6 +7,7 @@ function App() {
   const [messages, setMessages] = useState<{ sender: string; text: string }[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [typingText, setTypingText] = useState(""); // để hiển thị từng ký tự
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
@@ -15,23 +16,36 @@ function App() {
     setMessages([...messages, userMessage]);
     setInput("");
     setLoading(true);
+    setTypingText(""); // reset typing
 
     try {
       const res = await fetch("http://localhost:5000/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: input }),
+        body: JSON.stringify({ query: input, user_id: "user123" }),
       });
 
       const data = await res.json();
-      const botMessage = { sender: "bot", text: data.generated_answer };
-      setMessages((prev) => [...prev, botMessage]);
+      const fullText = data.generated_answer;
+
+      // Hiệu ứng typing
+      let index = 0;
+      const typingInterval = setInterval(() => {
+        if (index < fullText.length) {
+          setTypingText((prev) => prev + fullText[index]);
+          index++;
+        } else {
+          clearInterval(typingInterval);
+          setMessages((prev) => [...prev, { sender: "bot", text: fullText }]);
+          setTypingText("");
+          setLoading(false);
+        }
+      }, 10); // tốc độ gõ (ms/char)
     } catch (error) {
       setMessages((prev) => [
         ...prev,
         { sender: "bot", text: "⚠️ Lỗi kết nối tới server." },
       ]);
-    } finally {
       setLoading(false);
     }
   };
@@ -73,44 +87,27 @@ function App() {
                 }`}
                 style={{ maxWidth: "75%" }}
               >
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    code({ node, inline, className, children, ...props }) {
-                      return !inline ? (
-                        <pre
-                          style={{
-                            background: "#f5f5f5",
-                            padding: "8px",
-                            borderRadius: "8px",
-                            overflowX: "auto",
-                          }}
-                        >
-                          <code {...props}>{children}</code>
-                        </pre>
-                      ) : (
-                        <code
-                          style={{
-                            background: "#eee",
-                            padding: "2px 4px",
-                            borderRadius: "4px",
-                          }}
-                          {...props}
-                        >
-                          {children}
-                        </code>
-                      );
-                    },
-                  }}
-                >
-                  {msg.text}
-                </ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
               </div>
             </div>
           ))}
 
-          {/* Loading indicator */}
-          {loading && (
+          {/* Hiệu ứng gõ từng ký tự */}
+          {typingText && (
+            <div className="d-flex justify-content-start mb-2">
+              <div
+                className="p-2 bg-white border rounded-3"
+                style={{ maxWidth: "75%" }}
+              >
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {typingText + "▋"}
+                </ReactMarkdown>
+              </div>
+            </div>
+          )}
+
+          {/* Hiệu ứng đang tải (nếu server chưa phản hồi) */}
+          {loading && !typingText && (
             <div className="d-flex justify-content-start mb-2">
               <div
                 className="p-2 bg-white border rounded-3 d-flex align-items-center"

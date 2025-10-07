@@ -51,3 +51,21 @@ RERANK_TOPK=5
 RAG_FLASK_PORT=5000
 RAG_FLASK_DEBUG=True
 ```
+
+
+# Run
+
+## Backend
+
+```bash
+python rag_retrieval/run_add_products.py
+python rag_retrieval/run.py
+```
+
+# Frontend
+
+```bash
+cd chatbot-ui
+npm install
+npm run dev
+```

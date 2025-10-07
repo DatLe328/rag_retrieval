@@ -10,6 +10,101 @@ warnings.filterwarnings("ignore", message=".*torch_dtype.*deprecated.*")
 _chat_model, _reranker = None, None
 
 
+class ChatHistoryManager:
+    def __init__(self):
+        self.history = {}  # { "user_id": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}] }
+
+    def add_message(self, user_id: str, role: str, content: str):
+        if user_id not in self.history:
+            self.history[user_id] = []
+        self.history[user_id].append({"role": role, "content": content})
+
+    def get_history(self, user_id: str, limit: int = 5) -> list:
+        return self.history.get(user_id, [])[-limit*2:]
+
+    def format_history_for_prompt(self, user_id: str) -> str:
+        history_list = self.get_history(user_id)
+        if not history_list:
+            return "Chưa có lịch sử trò chuyện."
+        
+        formatted = ""
+        for msg in history_list:
+            role = "Người dùng" if msg["role"] == "user" else "Trợ lý"
+            formatted += f"{role}: {msg['content']}\n"
+        return formatted
+
+
+chat_history_manager = ChatHistoryManager()
+
+
+
+def process_conversational_query(user_id: str, current_query: str, chat_model) -> str:
+    """
+    Sử dụng một prompt nâng cao (lấy cảm hứng từ Chain of Density) để
+    tối ưu hóa truy vấn của người dùng cho hệ thống RAG, với khả năng suy luận
+    ngữ cảnh từ lượt hội thoại gần nhất.
+    """
+    history_str = chat_history_manager.format_history_for_prompt(user_id)
+    return history_str + current_query if history_str != "Chưa có lịch sử trò chuyện." else current_query
+    
+    if "Chưa có lịch sử" in history_str:
+        return current_query
+
+    system_prompt = (
+        "Bạn là một AI chuyên phân tích và tối ưu hóa truy vấn cho hệ thống tìm kiếm ngữ nghĩa. "
+        "Mục tiêu của bạn là biến câu hỏi của người dùng thành một truy vấn độc lập, 'dày đặc' thông tin nhất có thể "
+        "dựa trên lịch sử trò chuyện, để giúp hệ thống tìm ra những tài liệu chính xác nhất."
+        "\n\n"
+        "**QUY TRÌNH SUY LUẬN BẮT BUỘC CỦA BẠN:**\n"
+        "1. **Xác định Chủ thể (Entity Resolution):**\n"
+        "   - **(a) Ưu tiên Câu hỏi mới:** Đầu tiên, kiểm tra xem câu hỏi mới của người dùng có đề cập rõ ràng đến một sản phẩm hoặc chủ thể cụ thể không (ví dụ: 'thông tin về GROW500'). Nếu có, đó là chủ thể chính của bạn.\n"
+        "   - **(b) Suy luận từ Ngữ cảnh Gần nhất:** Nếu câu hỏi mới mơ hồ hoặc chỉ đề cập đến một thuộc tính chung (ví dụ: 'lãi suất là bao nhiêu?', 'hồ sơ cần gì?'), bạn **BẮT BUỘC** phải xác định chủ thể từ **lượt trả lời cuối cùng của Trợ lý** trong lịch sử trò chuyện. Chủ thể đó sẽ là ngữ cảnh cho câu hỏi mới.\n"
+        "\n"
+        "2. **Phân tích & Tổng hợp:** Kết hợp 'Chủ thể' đã xác định ở Bước 1 với 'Ý định' trong câu hỏi mới để tạo ra một câu hỏi độc lập, hoàn chỉnh. Câu hỏi phải chứa đầy đủ các từ khóa và thực thể cần thiết.\n"
+        "\n"
+        "3. **Xử lý Ngoại lệ:** Nếu câu hỏi mới hoàn toàn không liên quan đến lịch sử và tự nó đã là một câu hỏi độc lập (ví dụ: 'thủ đô của Việt Nam là gì?'), hãy giữ nguyên câu hỏi đó.\n"
+        "\n\n"
+        "**QUY TẮC XUẤT KẾT QUẢ:**\n"
+        "- **KHÔNG** trả lời câu hỏi của người dùng.\n"
+        "- **KHÔNG** thêm các cụm từ thừa như 'Dựa trên lịch sử, câu hỏi được viết lại là:'.\n"
+        "- **TRẢ VỀ DUY NHẤT** chuỗi truy vấn cuối cùng."
+    )
+
+    user_prompt_for_rewriting = (
+        "Dưới đây là một số ví dụ về cách thực hiện:\n\n"
+        "**VÍ DỤ 1 (Suy luận ngữ cảnh):**\n"
+        "- Lịch sử: Trợ lý vừa trả lời về sản phẩm MINIFLEX.\n"
+        "- Câu hỏi mới: 'còn hồ sơ thì sao?'\n"
+        "- Kết quả mong muốn: hồ sơ yêu cầu của sản phẩm MINIFLEX là gì?\n\n"
+        "**VÍ DỤ 2 (Suy luận ngữ cảnh với câu hỏi ngắn):**\n"
+        "- Lịch sử: Trợ lý vừa mô tả các điều kiện của gói GROW500.\n"
+        "- Câu hỏi mới: 'lãi suất?'\n"
+        "- Kết quả mong muốn: lãi suất vay của gói GROW500 là bao nhiêu?\n\n"
+        "**VÍ DỤ 3 (Câu hỏi rõ ràng):**\n"
+        "- Lịch sử: Trợ lý vừa trả lời về gói MINIFLEX.\n"
+        "- Câu hỏi mới: 'cho tôi biết về thẻ FAST CARD'\n"
+        "- Kết quả mong muốn: cho tôi biết về thẻ FAST CARD\n\n"
+        "**VÍ DỤ 4 (Câu hỏi so sánh):**\n"
+        "- Lịch sử: Trợ lý vừa mô tả thẻ FAST CARD và gói GROW500.\n"
+        "- Câu hỏi mới: 'so sánh hạn mức 2 gói này'\n"
+
+        "--------------------------------------------------\n"
+        "**BÂY GIỜ, HÃY THỰC HIỆN VỚI DỮ LIỆU SAU:**\n\n"
+        "**Lịch sử trò chuyện:**\n"
+        f"{history_str}\n\n"
+        "**Câu hỏi mới của người dùng:**\n"
+        f"\"{current_query}\"\n\n"
+        "**Truy vấn độc lập được tối ưu hóa:**"
+        "Chỉ trả về câu hỏi thôi."
+    )
+    
+    standalone_query = chat_model.generate(user_prompt_for_rewriting, system_prompt=system_prompt)
+    standalone_query = standalone_query.strip().strip('"')
+
+    print(f"Original Query: '{current_query}' -> Optimized Standalone Query: '{standalone_query}'")
+    return standalone_query
+
+
 def get_chat_instance(provider, model):
     global _chat_model
     if _chat_model is None:
@@ -191,6 +286,7 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
             f"--- \n\n"
             f"Dựa vào các tài liệu trên, hãy trả lời câu hỏi sau: {user_query}\n"
             f"Chỉ cần đưa ra thông tin đúng với câu hỏi thôi đừng thêm các nội dung không cần thiết khác như trích dẫn từ tài liệu nào, theo tài liệu nào."
+            f"Không trả về nội dung lịch sử cuộc trò chuyện hay header truy vấn độc lập được tối ưu hóa."
         )
 
         # 3. Gọi LLM để sinh câu trả lời
@@ -223,62 +319,3 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
         "generated_answer": generated_answer,
         "results":final_docs_for_response 
     }
-
-# def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
-#                  weav_host: str, weav_port: int, weav_grpc: int,
-#                  chat_conf: tuple, reranker_conf: tuple) -> Dict[str, Any]:
-
-#     chat = get_chat_instance(*chat_conf)
-#     reranker = get_reranker_instance(*reranker_conf)
-
-#     multi_queries = generate_multi_queries(chat, user_query, n=multi_n)
-
-#     candidates: Dict[str, Dict[str, Any]] = {}
-#     with WeaviateManager(host=weav_host, http_port=weav_port, grpc_port=weav_grpc) as mgr:
-#         for q in multi_queries:
-#             hits = mgr.hybrid_search("Papers", q, alpha=alpha, limit=50)
-
-#             for h in hits:
-#                 doc_id = h["id"]
-#                 if doc_id not in candidates or h["combined_score"] > candidates[doc_id]["combined_score"]:
-#                     props = h.get("properties", {})
-#                     candidates[doc_id] = {
-#                         "id": doc_id,
-#                         "title": props.get("title"),
-#                         "abstract": props.get("abstract"),
-#                         "keywords": props.get("keywords"),
-#                         "text": props.get("text"),
-#                         "bm25_score": h["bm25_score"],
-#                         "vector_score": h["vector_score"],
-#                         "combined_score": h["combined_score"],
-#                     }
-
-#     top_candidates = sorted(candidates.values(), key=lambda x: x["combined_score"], reverse=True)[:200]
-
-#     docs_text = []
-#     for doc in top_candidates:
-#         parts = [doc.get("title") or "", doc.get("abstract") or "", (doc.get("text") or "")[:4000]]
-#         docs_text.append("\n\n".join([p for p in parts if p.strip()]))
-
-#     try:
-#         rerank_results = reranker.rerank(user_query, docs_text, top_k=top_k)
-#     except Exception as e:
-#         print("Reranker error:", e)
-#         rerank_results = [(i, d["combined_score"], docs_text[i]) for i, d in enumerate(top_candidates[:top_k])]
-
-#     final = []
-#     for idx, score, txt in rerank_results:
-#         meta = top_candidates[idx]
-#         final.append({
-#             "id": meta["id"],
-#             "title": meta["title"],
-#             "abstract": meta["abstract"],
-#             "keywords": meta["keywords"],
-#             "bm25_score": meta["bm25_score"],
-#             "vector_score": meta["vector_score"],
-#             "combined_score": meta["combined_score"],
-#             "reranker_score": score,
-#             "snippet": txt[:500] + "..." if txt and len(txt) > 500 else txt,
-#         })
-
-#     return {"query": user_query, "multi_queries": multi_queries, "results": final}
