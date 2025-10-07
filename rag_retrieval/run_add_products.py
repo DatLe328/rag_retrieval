@@ -4,7 +4,7 @@ import os
 import asyncio
 from dotenv import load_dotenv
 from rag_retrieval.goldenverba.load_data import load_files
-
+from weaviate.classes.config import Configure, Property, DataType
 from goldenverba.components.chunking.MarkdownChunker import MarkdownChunker
 from goldenverba.components.chunking.SentenceChunker import SentenceChunker
 from goldenverba.components.document import Document
@@ -124,6 +124,19 @@ if __name__ == "__main__":
 
     try:
         with WeaviateManager() as manager:
+            collection_name = "Papers"
+            properties = [
+                Property(name="title", data_type=DataType.TEXT),
+                Property(name="abstract", data_type=DataType.TEXT),
+                Property(name="keywords", data_type=DataType.TEXT_ARRAY),
+                Property(name="text", data_type=DataType.TEXT),
+                Property(name="created_date", data_type=DataType.DATE),
+            ]
+            
+            print(f"\n[1/3] Đang tạo collection '{collection_name}' (sẽ xóa nếu đã tồn tại)...")
+            # Hàm create_collection đã được cấu hình để dùng text2vec-ollama
+            manager.create_collection(name=collection_name, properties=properties, force_recreate=True)
+            print(f"✅ Collection '{collection_name}' đã được tạo thành công.")
             asyncio.run(chunk_and_add(manager, products_data))
     except ConnectionError as ce:
         print("\nLỖI KẾT NỐI: Không thể kết nối tới Weaviate.")

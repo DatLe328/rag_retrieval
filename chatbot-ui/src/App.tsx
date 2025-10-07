@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import "bootstrap/dist/css/bootstrap.min.css";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 function App() {
   const [messages, setMessages] = useState<{ sender: string; text: string }[]>([]);
@@ -67,24 +69,55 @@ function App() {
                 className={`p-2 rounded-3 ${
                   msg.sender === "user"
                     ? "bg-primary text-white"
-                    : "bg-secondary text-white"
+                    : "bg-white border"
                 }`}
-                style={{ maxWidth: "70%" }}
+                style={{ maxWidth: "75%" }}
               >
-                {msg.text}
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    code({ node, inline, className, children, ...props }) {
+                      return !inline ? (
+                        <pre
+                          style={{
+                            background: "#f5f5f5",
+                            padding: "8px",
+                            borderRadius: "8px",
+                            overflowX: "auto",
+                          }}
+                        >
+                          <code {...props}>{children}</code>
+                        </pre>
+                      ) : (
+                        <code
+                          style={{
+                            background: "#eee",
+                            padding: "2px 4px",
+                            borderRadius: "4px",
+                          }}
+                          {...props}
+                        >
+                          {children}
+                        </code>
+                      );
+                    },
+                  }}
+                >
+                  {msg.text}
+                </ReactMarkdown>
               </div>
             </div>
           ))}
 
-          {/* Hiệu ứng chờ */}
+          {/* Loading indicator */}
           {loading && (
             <div className="d-flex justify-content-start mb-2">
               <div
-                className="p-2 bg-secondary text-white rounded-3 d-flex align-items-center"
+                className="p-2 bg-white border rounded-3 d-flex align-items-center"
                 style={{ maxWidth: "70%" }}
               >
                 <div
-                  className="spinner-border spinner-border-sm me-2 text-light"
+                  className="spinner-border spinner-border-sm me-2 text-secondary"
                   role="status"
                 ></div>
                 <span>Đang trả lời...</span>

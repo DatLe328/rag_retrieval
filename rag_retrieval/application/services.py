@@ -181,7 +181,8 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
             "1. Chỉ sử dụng thông tin từ phần 'Bối cảnh tham khảo' để trả lời. "
             "2. Trả lời một cách súc tích, rõ ràng và trực tiếp vào câu hỏi.\n"
             "3. Nếu thông tin không có trong tài liệu, hãy trả lời là 'Tôi không tìm thấy thông tin để trả lời câu hỏi này trong tài liệu được cung cấp.'\n"
-            "4. Không được bịa đặt thông tin hoặc sử dụng kiến thức bên ngoài."
+            "4. Không được bịa đặt thông tin hoặc sử dụng kiến thức bên ngoài.\n"
+            "5. Trả về định dạng markdown."
         )
 
         user_prompt_for_llm = (
