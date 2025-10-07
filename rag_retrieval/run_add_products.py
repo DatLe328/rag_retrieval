@@ -9,12 +9,11 @@ from goldenverba.components.document import Document
 import requests  # dùng cho Ollama summary API
 from model.wrapper.llm_ollama import OllamaChatModel
 
-def summarize_text_ollama(text: str, model_name: str = "llama3.2:3b") -> str:
+def summarize_text_ollama(text: str, llm: OllamaChatModel) -> str:
     """
-    Gọi OllamaChatModel để tạo tóm tắt cực ngắn (≈20 từ).
+    Dùng OllamaChatModel đã khởi tạo để tạo tóm tắt cực ngắn (~20 từ)
     """
     try:
-        llm = OllamaChatModel(model_name=model_name)
         system_prompt = (
             "Bạn là trợ lý tóm tắt chính xác. "
             "Tạo bản tóm tắt ngắn gọn khoảng 20 từ, không mở đầu hay kết luận dư."
@@ -55,7 +54,7 @@ def merge_files(products_data):
 async def chunk_and_add(manager, merged_files):
     collection_name = "Papers"
     print(f"Sẽ thêm {len(merged_files)} file vào collection '{collection_name}'\n")
-
+    llm = OllamaChatModel(model_name="llama3.2:3b")
     for item in merged_files:
         title = item["filename"]
         text = item["text"]
@@ -81,7 +80,7 @@ async def chunk_and_add(manager, merged_files):
             chunks = await chunker.chunk([document])
 
         # Sinh abstract bằng Ollama
-        abstract = summarize_text_ollama(text)
+        abstract = summarize_text_ollama(text,llm)
 
         # Ghi từng chunk vào Weaviate
         for idx, chunk in enumerate(document.chunks if hasattr(document, "chunks") and document.chunks else chunks):
