@@ -8,6 +8,7 @@ class Settings:
     WEAVIATE_HOST = os.getenv("WEAVIATE_HOST", "localhost")
     WEAVIATE_PORT = int(os.getenv("WEAVIATE_PORT", 8080))
     WEAVIATE_GRPC = int(os.getenv("WEAVIATE_GRPC_PORT", 50051))
+    WEAVIATE_COLLECTION_NAME = os.getenv("WEAVIATE_COLLECTION_NAME", "DemoCollection")
 
     # Ollama
     CHAT_PROVIDER = os.getenv("CHAT_PROVIDER", "ollama")

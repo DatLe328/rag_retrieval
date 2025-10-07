@@ -59,6 +59,7 @@ def generate_multi_queries(chat_model, user_query: str, n: int = 5) -> List[str]
 
 def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
                  weav_host: str, weav_port: int, weav_grpc: int,
+                 weav_collection: str,
                  chat_conf: tuple, reranker_conf: tuple) -> Dict[str, Any]:
 
     # --- 1. KHỞI TẠO BÁO CÁO VÀ BẮT ĐẦU ĐO THỜI GIAN ---
@@ -99,7 +100,7 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
         all_queries = [user_query] + multi_queries
         for q in list(set(all_queries)): # Dùng set để tránh lặp truy vấn
             # Giả định bạn đang dùng lại custom_hybrid_search
-            hits = mgr.hybrid_search("Papers", q, alpha=alpha, limit=50) 
+            hits = mgr.hybrid_search(weav_collection, q, alpha=alpha, limit=50) 
             initial_candidate_count += len(hits)
             for h in hits:
                 doc_id = h["id"]
