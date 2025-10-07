@@ -2,7 +2,6 @@ from flask import Blueprint, request, jsonify
 from .services import rag_pipeline
 from rag_retrieval.config.settings import Settings
 
-
 bp = Blueprint("rag", __name__)
 
 @bp.route("/query", methods=["POST"])
