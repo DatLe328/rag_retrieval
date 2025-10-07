@@ -1,16 +1,8 @@
-from .base_models import BaseEmbedder, BaseLLMModel
-from .wrapper.embedder_ollama import OllamaEmbedder
+from .base_models import BaseLLMModel
 from .wrapper.llm_ollama import OllamaChatModel
 from .base_models import BaseReranker
 from .wrapper.reranker_bge import BGEReranker
 from .wrapper.reranker_jina import JinaReranker
-
-
-def get_embedder(provider: str, model_name: str) -> BaseEmbedder:
-    if provider.lower() == "ollama":
-        return OllamaEmbedder(model_name=model_name)
-    else:
-        raise ValueError(f"Nhà cung cấp embedder '{provider}' không được hỗ trợ.")
 
 
 def get_chat_model(provider: str, model_name: str) -> BaseLLMModel:

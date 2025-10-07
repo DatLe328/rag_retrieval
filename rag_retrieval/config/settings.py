@@ -10,8 +10,6 @@ class Settings:
     WEAVIATE_GRPC = int(os.getenv("WEAVIATE_GRPC_PORT", 50051))
 
     # Ollama
-    EMBEDDER_PROVIDER = os.getenv("EMBEDDER_PROVIDER", "ollama")
-    EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
     CHAT_PROVIDER = os.getenv("CHAT_PROVIDER", "ollama")
     CHAT_MODEL = os.getenv("CHAT_MODEL", "llama3.2:3b")
 

@@ -33,7 +33,6 @@ class OllamaChatModel(BaseLLMModel):
             response = requests.post(self.chat_url, json=payload)
             response.raise_for_status()
             content = response.json().get("message", {}).get("content", "").strip()
-            # Dọn dẹp output
             return content.strip('"')
         except requests.exceptions.RequestException as e:
             print(f"Lỗi khi giao tiếp với Ollama Chat API: {e}")
