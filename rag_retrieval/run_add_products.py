@@ -1,126 +1,113 @@
 from rag_retrieval.db.weaviate_db import WeaviateManager
 from datetime import datetime, timezone
-import os
-import asyncio
+import os, asyncio
 from dotenv import load_dotenv
 from rag_retrieval.goldenverba.load_data import load_files
-from weaviate.classes.config import Configure, Property, DataType
+from weaviate.classes.config import Property, DataType
 from goldenverba.components.chunking.MarkdownChunker import MarkdownChunker
-from goldenverba.components.chunking.SentenceChunker import SentenceChunker
 from goldenverba.components.document import Document
+import requests  # dùng cho Ollama summary API
+from model.wrapper.llm_ollama import OllamaChatModel
+
+def summarize_text_ollama(text: str, model_name: str = "llama3.2:3b") -> str:
+    """
+    Gọi OllamaChatModel để tạo tóm tắt cực ngắn (≈20 từ).
+    """
+    try:
+        llm = OllamaChatModel(model_name=model_name)
+        system_prompt = (
+            "Bạn là trợ lý tóm tắt chính xác. "
+            "Tạo bản tóm tắt ngắn gọn khoảng 20 từ, không mở đầu hay kết luận dư."
+        )
+        user_prompt = f"Tóm tắt nội dung sau trong khoảng 20 từ:\n\n{text[:4000]}"
+        summary = llm.generate(user_prompt=user_prompt, system_prompt=system_prompt)
+        return summary.strip()
+    except Exception as e:
+        print(f"❌ Lỗi khi gọi OllamaChatModel: {e}")
+        return ""
 
 # ==============================================================================
-# ĐỌC DỮ LIỆU TỪ FILE (md, txt, pdf, docx)
+# GOM FILE CHÍNH VÀ FILE KEYWORD
 # ==============================================================================
-md_folder = "data"  # <-- Đường dẫn folder chứa file .md của bạn
-products_data = load_files(md_folder)
+def merge_files(products_data):
+    md_files = [f for f in products_data if f["ext"] == ".md"]
+    merged = []
+
+    for f in md_files:
+        fname = f["filename"].lower()
+        if fname.endswith("_kw.md"):
+            continue  # bỏ file keyword, sẽ gán vào file chính
+
+        # tìm file keyword tương ứng
+        base = fname.replace(".md", "")
+        kw_file = next((k for k in md_files if k["filename"].lower() == f"{base}_kw.md"), None)
+
+        merged.append({
+            "filename": f["filename"],
+            "text": f["text"],
+            "kw_text": kw_file["text"] if kw_file else "",
+        })
+    return merged
 
 # ==============================================================================
-# HÀM LỌC FILE: phân loại file thường và file chứa 'kw'
+# CHUNK + EMBEDDING FULL TEXT + SUMMARY + KW
 # ==============================================================================
-def filter_files(products_data, kw_mode=False):
-    if kw_mode:
-        # Luồng 2: file có 'kw' trong tên
-        return [f for f in products_data if f["ext"] == ".md" and "kw" in f["filename"].lower()]
-    else:
-        # Luồng 1: file thường (không có 'kw')
-        return [f for f in products_data if f["ext"] == ".md" and "kw" not in f["filename"].lower()]
-
-# ==============================================================================
-# LOGIC CHUNK, EMBEDDING NỘI DUNG VÀ EMBEDDING KEYWORD VÀO WEAVIATE
-# ==============================================================================
-async def chunk_and_add(manager, products_data):
+async def chunk_and_add(manager, merged_files):
     collection_name = "Papers"
-    print(f"Sẽ thêm dữ liệu vào collection: '{collection_name}'")
+    print(f"Sẽ thêm {len(merged_files)} file vào collection '{collection_name}'\n")
 
-    # Kiểm tra danh sách file nạp
-    print("\n--- Kiểm tra danh sách file ---")
-    all_files = [f["filename"] for f in products_data]
-    print("Tổng số file đọc được:", len(all_files))
-    print("Danh sách file:", all_files)
+    for item in merged_files:
+        title = item["filename"]
+        text = item["text"]
+        kw_text = item["kw_text"]
 
-    normal_files = filter_files(products_data, kw_mode=False)
-    kw_files = filter_files(products_data, kw_mode=True)
-    print("Normal files:", [f["filename"] for f in normal_files])
-    print("Keyword files:", [f["filename"] for f in kw_files])
+        print(f"→ Đang xử lý file: {title}")
 
-    # --------------------------------------------------------------------------
-    # LUỒNG 1: Chunk và embedding nội dung từ file thường
-    # --------------------------------------------------------------------------
-    print("\n--- Luồng 1: Chunk và embedding nội dung ---")
-    for product in normal_files:
-        product_title = product.get("filename", "Không có tiêu đề")
-        ext = product.get("ext", "")
-        text = product.get("text", "")
-        print(f"  -> Đang chunk và thêm: {product_title}")
-
-        chunker = MarkdownChunker() if ext == ".md" else SentenceChunker()
-
+        # Tạo Document để chunk
         document = Document(
-            title=product_title,
+            title=title,
             content=text,
-            extension=ext,
+            extension=".md",
             fileSize=0,
             labels=[],
             source="",
             meta={},
             metadata=""
         )
-        documents = [document]
-
-        # Chunk nội dung
-        config = chunker.config
+        chunker = MarkdownChunker()
         try:
-            chunks = await chunker.chunk(config, documents)
+            chunks = await chunker.chunk(chunker.config, [document])
         except TypeError:
-            chunks = await chunker.chunk(documents)
+            chunks = await chunker.chunk([document])
+
+        # Sinh abstract bằng Ollama
+        abstract = summarize_text_ollama(text)
 
         # Ghi từng chunk vào Weaviate
-        for idx, chunk in enumerate(
-            document.chunks if hasattr(document, "chunks") and document.chunks else chunks
-        ):
+        for idx, chunk in enumerate(document.chunks if hasattr(document, "chunks") and document.chunks else chunks):
             chunk_data = {
-                "filename": product_title,
-                "chunk_index": idx,
-                "text": getattr(chunk, "content", str(chunk)),  # Dùng 'text' để vector hóa
-                "ext": ext,
+                "title": title,
+                "abstract": abstract,
+                "text": getattr(chunk, "content", str(chunk)),
+                "keywords": [kw_text] if kw_text else [],
+                "created_date": datetime.now(timezone.utc).isoformat(),
             }
             try:
                 manager.add(collection_name=collection_name, properties=chunk_data)
-                print(f"     ✅ Thêm chunk {idx+1}: {product_title}")
+                print(f"   ✅ Chunk {idx+1} added.")
             except Exception as e:
-                print(f"     ❌ Lỗi khi thêm chunk {idx+1}: {e}")
-
-    # --------------------------------------------------------------------------
-    # LUỒNG 2: Embedding keyword từ file có 'kw'
-    # --------------------------------------------------------------------------
-    print("\n--- Luồng 2: Embedding keyword từ file có 'kw' ---")
-    for product in kw_files:
-        product_title = product.get("filename", "Không có tiêu đề")
-        ext = product.get("ext", "")
-        text = product.get("text", "")
-        print(f"  -> Đang embedding nguyên nội dung keyword file: {product_title}")
-
-        # Thêm toàn bộ nội dung file keyword làm một entry duy nhất
-        keyword_data = {
-            "filename": product_title,
-            "chunk_index": 0,
-            "text": text,  # Dùng 'text' để vector hóa
-            "ext": ext,
-        }
-
-        try:
-            manager.add(collection_name=collection_name, properties=keyword_data)
-            print(f"     ✅ Thêm file keyword {product_title} vào Weaviate")
-        except Exception as e:
-            print(f"     ❌ Lỗi khi thêm file keyword {product_title}: {e}")
+                print(f"   ❌ Lỗi chunk {idx+1}: {e}")
 
 # ==============================================================================
-# CHẠY CHÍNH
+# MAIN
 # ==============================================================================
 if __name__ == "__main__":
     load_dotenv()
-    print("--- Bắt đầu quá trình chunk và thêm dữ liệu vào Weaviate ---")
+    print("--- Bắt đầu quá trình embedding full text ---")
+
+    md_folder = "data"
+    products_data = load_files(md_folder)
+    merged_files = merge_files(products_data)
 
     try:
         with WeaviateManager() as manager:
@@ -132,16 +119,15 @@ if __name__ == "__main__":
                 Property(name="text", data_type=DataType.TEXT),
                 Property(name="created_date", data_type=DataType.DATE),
             ]
-            
-            print(f"\n[1/3] Đang tạo collection '{collection_name}' (sẽ xóa nếu đã tồn tại)...")
-            # Hàm create_collection đã được cấu hình để dùng text2vec-ollama
+            print(f"[1/2] Tạo lại collection '{collection_name}' ...")
             manager.create_collection(name=collection_name, properties=properties, force_recreate=True)
-            print(f"✅ Collection '{collection_name}' đã được tạo thành công.")
-            asyncio.run(chunk_and_add(manager, products_data))
-    except ConnectionError as ce:
-        print("\nLỖI KẾT NỐI: Không thể kết nối tới Weaviate.")
-        print(f"Chi tiết: {ce}")
-    except Exception as e:
-        print(f"\nĐã xảy ra lỗi không mong muốn: {e}")
+            print(f"✅ Collection '{collection_name}' sẵn sàng.\n")
 
-    print("\n--- ✅ Quá trình chunk và thêm dữ liệu đã hoàn tất. ---")
+            asyncio.run(chunk_and_add(manager, merged_files))
+
+    except ConnectionError as ce:
+        print("Lỗi kết nối Weaviate:", ce)
+    except Exception as e:
+        print("Lỗi không mong muốn:", e)
+
+    print("\n--- ✅ Hoàn tất quá trình embedding ---")

@@ -1,8 +1,12 @@
 import contextlib
 
-with contextlib.suppress(Exception):
+try:
     from langchain_text_splitters import MarkdownHeaderTextSplitter
     from langchain_core.documents import Document as LangChainDocument
+except Exception:
+    # Fallback cho môi trường cũ hoặc không có langchain_core
+    from langchain.schema import Document as LangChainDocument
+    from langchain_text_splitter import MarkdownHeaderTextSplitter
 
 from goldenverba.components.chunk import Chunk
 from goldenverba.components.interfaces import Chunker
