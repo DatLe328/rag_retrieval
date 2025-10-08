@@ -190,7 +190,7 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
     retrieval_start = time.monotonic()
     candidates: Dict[str, Dict[str, Any]] = {}
     initial_candidate_count = 0
-    with WeaviateManager(host=weav_host, http_port=weav_port, grpc_port=weav_grpc) as mgr:
+    with WeaviateManager(host=weav_host, http_port=weav_port) as mgr:
         # Sử dụng truy vấn gốc để có kết quả tốt nhất + các truy vấn phụ
         all_queries = [user_query] + multi_queries
         for q in list(set(all_queries)): # Dùng set để tránh lặp truy vấn

@@ -7,17 +7,18 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime
 
 class WeaviateManager:
-    def __init__(self, host="localhost", http_port=8080, grpc_port=50051):
+    def __init__(self, host="10.1.1.237", http_port=3000):
         self.host = host
         self.http_port = http_port
-        self.grpc_port = grpc_port
         self.client = None
 
     def __enter__(self):
         try:
-            self.client = weaviate.connect_to_custom(
-                http_host=self.host, http_port=self.http_port, http_secure=False,
-                grpc_host=self.host, grpc_port=self.grpc_port, grpc_secure=False,
+            # ✅ Kết nối REST-only, bỏ toàn bộ gRPC
+            self.client = weaviate.connect_to_local(
+                host=self.host,
+                port=self.http_port,
+                skip_init_checks=True,  # bỏ health-check gRPC
                 additional_config=AdditionalConfig(timeout=(10, 60)),
             )
             return self
