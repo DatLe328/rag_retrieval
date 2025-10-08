@@ -19,7 +19,7 @@ class ChatHistoryManager:
             self.history[user_id] = []
         self.history[user_id].append({"role": role, "content": content})
 
-    def get_history(self, user_id: str, limit: int = 5) -> list:
+    def get_history(self, user_id: str, limit: int = 10) -> list:
         return self.history.get(user_id, [])[-limit*2:]
 
     def format_history_for_prompt(self, user_id: str) -> str:
@@ -40,69 +40,45 @@ chat_history_manager = ChatHistoryManager()
 
 def process_conversational_query(user_id: str, current_query: str, chat_model) -> str:
     """
-    Sử dụng một prompt nâng cao (lấy cảm hứng từ Chain of Density) để
-    tối ưu hóa truy vấn của người dùng cho hệ thống RAG, với khả năng suy luận
-    ngữ cảnh từ lượt hội thoại gần nhất.
+    Tạo truy vấn độc lập (standalone query) dựa trên lịch sử hội thoại.
+    Dùng kỹ thuật tóm tắt theo query (Query-Focused Chain of Density Summarization)
+    nhưng chỉ trả về đầu ra cuối cùng, không kèm suy luận.
     """
     history_str = chat_history_manager.format_history_for_prompt(user_id)
-    return history_str + current_query if history_str != "Chưa có lịch sử trò chuyện." else current_query
-    
     if "Chưa có lịch sử" in history_str:
         return current_query
 
     system_prompt = (
-        "Bạn là một AI chuyên phân tích và tối ưu hóa truy vấn cho hệ thống tìm kiếm ngữ nghĩa. "
-        "Mục tiêu của bạn là biến câu hỏi của người dùng thành một truy vấn độc lập, 'dày đặc' thông tin nhất có thể "
-        "dựa trên lịch sử trò chuyện, để giúp hệ thống tìm ra những tài liệu chính xác nhất."
-        "\n\n"
-        "**QUY TRÌNH SUY LUẬN BẮT BUỘC CỦA BẠN:**\n"
-        "1. **Xác định Chủ thể (Entity Resolution):**\n"
-        "   - **(a) Ưu tiên Câu hỏi mới:** Đầu tiên, kiểm tra xem câu hỏi mới của người dùng có đề cập rõ ràng đến một sản phẩm hoặc chủ thể cụ thể không (ví dụ: 'thông tin về GROW500'). Nếu có, đó là chủ thể chính của bạn.\n"
-        "   - **(b) Suy luận từ Ngữ cảnh Gần nhất:** Nếu câu hỏi mới mơ hồ hoặc chỉ đề cập đến một thuộc tính chung (ví dụ: 'lãi suất là bao nhiêu?', 'hồ sơ cần gì?'), bạn **BẮT BUỘC** phải xác định chủ thể từ **lượt trả lời cuối cùng của Trợ lý** trong lịch sử trò chuyện. Chủ thể đó sẽ là ngữ cảnh cho câu hỏi mới.\n"
-        "\n"
-        "2. **Phân tích & Tổng hợp:** Kết hợp 'Chủ thể' đã xác định ở Bước 1 với 'Ý định' trong câu hỏi mới để tạo ra một câu hỏi độc lập, hoàn chỉnh. Câu hỏi phải chứa đầy đủ các từ khóa và thực thể cần thiết.\n"
-        "\n"
-        "3. **Xử lý Ngoại lệ:** Nếu câu hỏi mới hoàn toàn không liên quan đến lịch sử và tự nó đã là một câu hỏi độc lập (ví dụ: 'thủ đô của Việt Nam là gì?'), hãy giữ nguyên câu hỏi đó.\n"
-        "\n\n"
-        "**QUY TẮC XUẤT KẾT QUẢ:**\n"
-        "- **KHÔNG** trả lời câu hỏi của người dùng.\n"
-        "- **KHÔNG** thêm các cụm từ thừa như 'Dựa trên lịch sử, câu hỏi được viết lại là:'.\n"
-        "- **TRẢ VỀ DUY NHẤT** chuỗi truy vấn cuối cùng."
+        "Bạn là một AI chuyên xử lý truy vấn hội thoại để tạo thành câu hỏi độc lập, "
+        "tối ưu cho tìm kiếm ngữ nghĩa trong hệ thống RAG. "
+        "Nhiệm vụ của bạn là dùng lịch sử trò chuyện trước đó để hiểu ngữ cảnh, "
+        "và viết lại truy vấn hiện tại sao cho đầy đủ, rõ ràng, và tự nó có thể hiểu được "
+        "mà không cần tham chiếu đến lịch sử. "
+        "Chỉ xuất ra kết quả cuối cùng, không giải thích cách làm hay suy nghĩ trung gian."
     )
 
-    user_prompt_for_rewriting = (
-        "Dưới đây là một số ví dụ về cách thực hiện:\n\n"
-        "**VÍ DỤ 1 (Suy luận ngữ cảnh):**\n"
-        "- Lịch sử: Trợ lý vừa trả lời về sản phẩm MINIFLEX.\n"
-        "- Câu hỏi mới: 'còn hồ sơ thì sao?'\n"
-        "- Kết quả mong muốn: hồ sơ yêu cầu của sản phẩm MINIFLEX là gì?\n\n"
-        "**VÍ DỤ 2 (Suy luận ngữ cảnh với câu hỏi ngắn):**\n"
-        "- Lịch sử: Trợ lý vừa mô tả các điều kiện của gói GROW500.\n"
-        "- Câu hỏi mới: 'lãi suất?'\n"
-        "- Kết quả mong muốn: lãi suất vay của gói GROW500 là bao nhiêu?\n\n"
-        "**VÍ DỤ 3 (Câu hỏi rõ ràng):**\n"
-        "- Lịch sử: Trợ lý vừa trả lời về gói MINIFLEX.\n"
-        "- Câu hỏi mới: 'cho tôi biết về thẻ FAST CARD'\n"
-        "- Kết quả mong muốn: cho tôi biết về thẻ FAST CARD\n\n"
-        "**VÍ DỤ 4 (Câu hỏi so sánh):**\n"
-        "- Lịch sử: Trợ lý vừa mô tả thẻ FAST CARD và gói GROW500.\n"
-        "- Câu hỏi mới: 'so sánh hạn mức 2 gói này'\n"
+    user_prompt_for_rewriting = f"""
+<Query hiện tại>
+{current_query}
 
-        "--------------------------------------------------\n"
-        "**BÂY GIỜ, HÃY THỰC HIỆN VỚI DỮ LIỆU SAU:**\n\n"
-        "**Lịch sử trò chuyện:**\n"
-        f"{history_str}\n\n"
-        "**Câu hỏi mới của người dùng:**\n"
-        f"\"{current_query}\"\n\n"
-        "**Truy vấn độc lập được tối ưu hóa:**"
-        "Chỉ trả về câu hỏi thôi."
-    )
-    
+<Conversation>
+{history_str}
+</Conversation>
+
+---
+
+Yêu cầu:
+- Viết lại truy vấn sao cho nó trở thành một câu hỏi độc lập, chứa đầy đủ ngữ cảnh và ý định của người dùng.
+- Nếu câu hỏi đã độc lập sẵn thì giữ nguyên.
+- Không mô tả quá trình làm việc.
+- Chỉ xuất duy nhất truy vấn đã viết lại, không thêm định dạng JSON hay nhãn.
+"""
+
     standalone_query = chat_model.generate(user_prompt_for_rewriting, system_prompt=system_prompt)
     standalone_query = standalone_query.strip().strip('"')
-
-    print(f"Original Query: '{current_query}' -> Optimized Standalone Query: '{standalone_query}'")
+    print(f"[Optimized Query] {standalone_query}")
     return standalone_query
+
 
 
 def get_chat_instance(provider, model):
