@@ -9,12 +9,13 @@ class Chunk:
         chunk_id: str = "",
         start_i: int = 0,
         end_i: int = 0,
-        abstract: str = "", # <--- THÊM DÒNG NÀY
+        abstract: str = "",
+        keywords: list[str] = None,
+        ingestion_date: str = "",
     ):
         self.content = content
         self.title = ""
         self.chunk_id = chunk_id
-        self.abstract = abstract # <--- THÊM DÒNG NÀY
         self.vector = None
         self.doc_uuid = None
         self.pca = [0, 0, 0]
@@ -22,6 +23,9 @@ class Chunk:
         self.end_i = end_i
         self.content_without_overlap = content_without_overlap
         self.labels = []
+        self.abstract = abstract
+        self.keywords = keywords if keywords is not None else []
+        self.ingestion_date = ingestion_date
 
     def to_json(self) -> dict:
         """Convert the Chunk object to a dictionary."""
@@ -31,6 +35,8 @@ class Chunk:
             "doc_uuid": self.doc_uuid,
             "title": self.title,
             "abstract": self.abstract,
+            "keywords": self.keywords,
+            "ingestion_date": self.ingestion_date,
             "pca": self.pca,
             "start_i": self.start_i,
             "end_i": self.end_i,
@@ -43,13 +49,13 @@ class Chunk:
         """Construct a Chunk object from a dictionary."""
         chunk = cls(
             content=data.get("content", ""),
-            title=data.get("title", ""),
             chunk_id=data.get("chunk_id", 0),
             start_i=data.get("start_i", 0),
             end_i=data.get("end_i", 0),
             content_without_overlap=data.get("content_without_overlap", ""),
-            labels=data.get("labels", []),
-            abstract=data.get("abstract", ""), # <--- Thêm vào đây
+            abstract=data.get("abstract", ""),
+            keywords=data.get("keywords", []),
+            ingestion_date=data.get("ingestion_date", ""),
         )
-        chunk.doc_uuid = (data.get("doc_uuid", ""),)
+        chunk.doc_uuid = data.get("doc_uuid", "")
         return chunk

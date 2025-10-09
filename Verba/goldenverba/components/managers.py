@@ -408,10 +408,12 @@ class WeaviateManager:
 
             try:
                 for chunk in document.chunks:
-                    chunk.abstract=document.abstract
                     chunk.doc_uuid = doc_uuid
                     chunk.labels = document.labels
                     chunk.title = document.title
+                    chunk.abstract = document.abstract
+                    chunk.keywords = document.keywords # Them dong nay
+                    chunk.ingestion_date = document.ingestion_date # Them dong nay
 
                 chunk_response = await embedder_collection.data.insert_many(
                     [

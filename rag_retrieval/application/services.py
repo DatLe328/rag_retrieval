@@ -276,6 +276,7 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
             "title": doc["title"],
             "abstract": doc["abstract"],
             "keywords": doc["keywords"],
+            "ingestion_date": props.get("ingestion_date"), # <-- ĐÃ THÊM VÀO ĐÂY
             "combined_score": doc["combined_score"],
             "reranker_score": doc["reranker_score"],
             "content": full_text[:500] + "..." if len(full_text) > 500 else full_text,

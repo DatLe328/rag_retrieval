@@ -4,7 +4,8 @@ from spacy.tokens import Doc
 from spacy.language import Language
 import spacy
 import json
-from goldenverba.utils.summarize import summarize_text_ollama
+from datetime import datetime
+from goldenverba.utils.summarize import summarize_text_ollama, extract_keywords_ollama
 
 from langdetect import detect
 
@@ -56,6 +57,8 @@ class Document:
         meta: dict = {},
         metadata: str = "",
         abstract: str = "",
+        keywords: list[str] = None,
+        ingestion_date: str = "",
     ):
         self.title = title
         self.content = content
@@ -67,6 +70,10 @@ class Document:
         self.metadata = metadata
         self.abstract = abstract
         self.chunks: list[Chunk] = []
+
+        # Gan gia tri moi
+        self.keywords = keywords if keywords is not None else []
+        self.ingestion_date = ingestion_date
 
         MAX_BATCH_SIZE = 500000
 
@@ -86,10 +93,21 @@ class Document:
             detected_language = detect_language(content)
             nlp = load_nlp_for_language(detected_language)
             doc = nlp(content)
+
         if not self.abstract and self.content:
             print("Generating abstract...")
-            self.abstract = summarize_text_ollama(content)
+            self.abstract = summarize_text_ollama(self.content)
             print("Abstract: ", self.abstract)
+        
+        # Logic tao keywords
+        if not self.keywords and self.content:
+            print("Generating keywords...")
+            self.keywords = extract_keywords_ollama(self.content)
+
+        # Logic tao date
+        if not self.ingestion_date:
+            self.ingestion_date = datetime.now().isoformat()
+            
         self.spacy_doc = doc
 
     @staticmethod
@@ -105,6 +123,8 @@ class Document:
             "meta": json.dumps(document.meta),
             "metadata": document.metadata,
             "abstract": document.abstract,
+            "keywords": document.keywords,
+            "ingestion_date": document.ingestion_date,
         }
         return doc_dict
 
@@ -132,6 +152,8 @@ class Document:
                 meta=doc_dict.get("meta", {}),
                 metadata=doc_dict.get("metadata", ""),
                 abstract = doc_dict.get("abstract", ""),
+                keywords = doc_dict.get("keywords", []),
+                ingestion_date = doc_dict.get("ingestion_date", ""),
             )
             return document
         else:
