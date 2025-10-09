@@ -7,7 +7,7 @@ WEAVIATE_HOST = "localhost"
 WEAVIATE_PORT = 8080  # Bạn cũng có thể đổi thành 3000
 
 # Tên collection bạn muốn truy vấn (dựa trên các lần trao đổi trước)
-COLLECTION_NAME = "Papers"
+COLLECTION_NAME = "VERBA_Embedding_nomic_embed_text_latest"
 
 client = None
 try:

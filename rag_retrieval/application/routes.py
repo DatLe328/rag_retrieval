@@ -15,6 +15,10 @@ def query():
     multi_n = int(data["multi_n"]) if "multi_n" in data else Settings.MULTI_QUERY_N
     top_k = int(data["top_k"]) if "top_k" in data else Settings.RERANK_TOPK
     alpha = float(data["alpha"]) if "alpha" in data else Settings.HYBRID_ALPHA
+    print("/query")
+    print(f"multi_n: {multi_n}")
+    print(f"top_k: {top_k}")
+    print(f"alpha: {alpha}")
 
     result = rag_pipeline(
         user_query,

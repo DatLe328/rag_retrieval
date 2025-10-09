@@ -177,7 +177,6 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
     end_time = time.monotonic()
     report["timings_ms"]["total_pipeline_duration"] = round((end_time - start_time) * 1000)
 
-
     #  6: SINH NỘI DUNG TÓM TẮT (GENERATION)
     print("Generating summary...")
     generation_start = time.monotonic()
@@ -193,20 +192,26 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
             context_string += f"--- Nguồn tài liệu {i+1}: {doc['title']} ---\n"
             context_string += doc['content']
             context_string += f"Từ khóa: {doc['keywords']}"
+            context_string += f"Tóm tắt: {doc['abstract']}"
             context_string += "\n\n"
         
-        # 2. TẠO PROMPT YÊU CẦU TÓM TẮT VÀ ĐỊNH DẠNG MARKDOWN
-        summarizer_prompt = f"""Bạn là một chuyên gia trình bày thông tin. Nhiệm vụ của bạn là đọc [Kiến thức] và tóm tắt lại các thông tin liên quan đến [Câu hỏi], sau đó trình bày kết quả bằng cú pháp Markdown.
+        # 2. PROMPT TÓM TẮT PHIÊN BẢN GẮT GAO
+        summarizer_prompt = f"""Bạn là một robot xử lý dữ liệu.
 
-    ### QUY TẮC ĐỊNH DẠNG:
-    - Sử dụng tiêu đề (ví dụ: `## Tiêu đề chính`, `### Tiêu đề phụ`) cho các mục lớn.
-    - Sử dụng dấu gạch đầu dòng (`-`) để liệt kê các đặc điểm, điều kiện, hoặc danh sách.
-    - Sử dụng `**in đậm**` để nhấn mạnh các thuật ngữ quan trọng, các con số hoặc các nhãn dữ liệu (ví dụ: `**Lãi suất:** 15.9%/năm`).
+    ### QUY TẮC TỐI THƯỢNG:
+    **SỰ TRUNG THỰC TUYỆT ĐỐI:** 100% nội dung bạn tạo ra phải bắt nguồn trực tiếp từ [Kiến thức] được cung cấp. **CẤM TUYỆT ĐỐI** việc sử dụng kiến thức bên ngoài, suy luận ngoài phạm vi, hoặc bổ sung bất kỳ chi tiết nào không được nêu rõ trong văn bản. Mọi vi phạm quy tắc này sẽ làm cho kết quả bị coi là hoàn toàn sai.
 
-    ### QUY TẮC NỘI DUNG:
-    - Đầu ra của bạn CHỈ ĐƯỢC PHÉP là phần kiến thức đã được tóm tắt và định dạng Markdown.
-    - Tuyệt đối không thêm bất kỳ lời chào, câu dẫn, lời giải thích hay kết luận nào.
+    ### NHIỆM VỤ:
+    Nhiệm vụ của bạn là **trích xuất và tái cấu trúc** một cách trung thực MỌI thông tin từ [Kiến thức] có liên quan trực tiếp đến [Câu hỏi]. Bạn không được diễn giải, không được bình luận, và không được tóm tắt một cách sáng tạo.
+
+    ### QUY TẮC ĐỊNH DẠNG VÀ NỘI DUNG:
+    - Trình bày kết quả bằng cú pháp Markdown (sử dụng `##`, `-`, `**text**`).
+    - Đối với các dữ liệu quan trọng (số liệu, tên riêng, điều kiện), hãy ưu tiên sử dụng lại **câu chữ gốc** từ [Kiến thức] để đảm bảo độ chính xác.
+    - Đầu ra chỉ được chứa nội dung đã được trích xuất và định dạng. Không một lời chào, không một câu dẫn, không một lời giải thích.
     - Nếu [Kiến thức] không chứa thông tin nào liên quan đến [Câu hỏi], hãy trả về một chuỗi rỗng duy nhất.
+
+    ### QUY TRÌNH KIỂM TRA CUỐI CÙNG:
+    Trước khi xuất ra kết quả, hãy tự rà soát lại bằng câu hỏi: "Tất cả thông tin trong đây có thể được truy vết ngược lại 100% từ [Kiến thức] không?". Nếu có bất kỳ nghi ngờ nào, hãy viết lại cho đến khi đạt được sự trung thực tuyệt đối.
 
     [Câu hỏi]
     {user_query}
@@ -221,50 +226,86 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
         else:
             generated_summary = "Lỗi: Không thể tải được prompt. Vui lòng kiểm tra lại file cấu hình."
 
+    report['generated_summary'] = generated_summary
     generation_end = time.monotonic()
     report["timings_ms"]["summary_generation"] = round((generation_end - generation_start) * 1000)
     print("Summary generated.")
 
-    print(generated_summary)
 
-    # --- BƯỚC MỚI: 6.5 KIỂM TRA SỰ PHÙ HỢP CỦA NỘI DUNG TÓM TẮT ---
-    final_answer = generated_summary # Mặc định câu trả lời cuối cùng là bản tóm tắt
-
-    if generated_summary and generated_summary.strip(): # Chỉ kiểm tra nếu bản tóm tắt không rỗng
-        print("Verifying summary relevance...")
-        verification_start = time.monotonic()
+    # --- BƯỚC MỚI: 6.2 KIỂM TRA TÍNH XÁC THỰC (GROUNDING VALIDATION) ---
+    # Kiểm tra xem nội dung tóm tắt có bịa đặt thông tin không có trong kiến thức gốc không
+    if generated_summary and generated_summary.strip():
+        print("Validating summary topic relevance (loosest criteria)...")
+        grounding_validation_start = time.monotonic()
         
-        verifier_prompt = f"""Bạn là một AI chuyên đánh giá sự liên quan. Hãy đọc [Câu hỏi] và [Nội dung tóm tắt] dưới đây. 
-    Nhiệm vụ của bạn là đưa ra kết luận xem [Nội dung tóm tắt] có chứa thông tin trực tiếp để trả lời [Câu hỏi] hay không.
+        # PROMPT MỚI, NỚI LỎNG NHẤT
+        grounding_validator_prompt = f"""Bạn là một AI chuyên gia đánh giá sự tương đồng về chủ đề.
+    Nhiệm vụ của bạn là xác định xem [Nội dung tóm tắt] và [Văn bản gốc] có cùng nói về một chủ đề chính hay không.
 
     Hãy trả lời bằng MỘT TỪ DUY NHẤT:
-    - "LIÊN QUAN" nếu nội dung tóm tắt trả lời được câu hỏi.
-    - "KHÔNG LIÊN QUAN" nếu nội dung tóm tắt chỉ nói về chủ đề chung chung nhưng không có thông tin cụ thể để trả lời câu hỏi.
+    - "CÓ LIÊN QUAN": nếu [Nội dung tóm tắt] thảo luận về cùng một chủ đề, sản phẩm, hoặc các khái niệm chính có trong [Văn bản gốc]. Nội dung tóm tắt có thể chứa các suy luận hoặc cách diễn đạt khác, miễn là nó không mâu thuẫn trực tiếp hoặc nói về một lĩnh vực hoàn toàn khác.
+    - "LẠC ĐỀ": nếu [Nội dung tóm tắt] nói về một chủ đề hoàn toàn khác biệt.
 
-    [Câu hỏi]:
-    {user_query}
+    Ví dụ: Văn bản gốc nói về 'điều kiện vay vốn kinh doanh', nhưng nội dung tóm tắt lại nói về 'cách chăm sóc cây cảnh' -> đây là "LẠC ĐỀ".
+
+    [Văn bản gốc]:
+    {context_string}
 
     [Nội dung tóm tắt]:
     {generated_summary}
     """
         
-        verification_result = chat.generate(verifier_prompt).strip().upper()
-        
-        # Nếu kết quả kiểm tra là KHÔNG LIÊN QUAN, ghi đè câu trả lời cuối cùng
-        if "KHÔNG LIÊN QUAN" in verification_result:
-            final_answer = "Không có nội dung phù hợp với câu hỏi."
-            print("Verification result: NOT RELEVANT. Overwriting answer.")
-        else:
-            print("Verification result: RELEVANT.")
-            
-        verification_end = time.monotonic()
-        report["timings_ms"]["answer_verification"] = round((verification_end - verification_start) * 1000)
+        grounding_result = chat.generate(grounding_validator_prompt).strip().upper()
+        report["intermediate_steps"]["grounding_validation_result"] = grounding_result
 
-    # Cập nhật tên biến để trả về cho response
+        # CẬP NHẬT LOGIC: KIỂM TRA TỪ "LẠC ĐỀ"
+        if "LẠC ĐỀ" in grounding_result:
+            generated_summary = "Lỗi: Nội dung được tạo ra không liên quan đến chủ đề của kiến thức cung cấp."
+            print("Validation result: OFF-TOPIC. Overwriting summary.")
+        else:
+            print("Validation result: ON-TOPIC.")
+        
+        grounding_validation_end = time.monotonic()
+        report["timings_ms"]["grounding_validation"] = round((grounding_validation_end - grounding_validation_start) * 1000)
+
+
+    # --- BƯỚC 6.5 KIỂM TRA SỰ PHÙ HỢP CỦA NỘI DUNG TÓM TẮT VỚI CÂU HỎI ---
+    final_answer = generated_summary # Mặc định câu trả lời cuối cùng là bản tóm tắt
+
+    # if generated_summary and generated_summary.strip() and not generated_summary.startswith("Lỗi:"):
+    #     print("Verifying summary relevance...")
+    #     verification_start = time.monotonic()
+        
+    #     verifier_prompt = f"""Bạn là một AI chuyên đánh giá sự liên quan. Hãy đọc [Câu hỏi] và [Nội dung tóm tắt] dưới đây. 
+    # Nhiệm vụ của bạn là đưa ra kết luận xem [Nội dung tóm tắt] có chứa thông tin trực tiếp để trả lời [Câu hỏi] hay không.
+
+    # Hãy trả lời bằng MỘT TỪ DUY NHẤT:
+    # - "LIÊN QUAN" nếu nội dung tóm tắt trả lời được câu hỏi.
+    # - "KHÔNG LIÊN QUAN" nếu nội dung tóm tắt chỉ nói về chủ đề chung chung nhưng không có thông tin cụ thể để trả lời câu hỏi.
+
+    # [Câu hỏi]:
+    # {user_query}
+
+    # [Nội dung tóm tắt]:
+    # {generated_summary}
+    # """
+        
+    #     verification_result = chat.generate(verifier_prompt).strip().upper()
+    #     report["intermediate_steps"]["relevance_verification_result"] = verification_result
+        
+    #     if "KHÔNG LIÊN QUAN" in verification_result:
+    #         final_answer = "Không có nội dung phù hợp với câu hỏi."
+    #         print("Verification result: NOT RELEVANT. Overwriting answer.")
+    #     else:
+    #         print("Verification result: RELEVANT.")
+            
+    #     verification_end = time.monotonic()
+    #     report["timings_ms"]["answer_verification"] = round((verification_end - verification_start) * 1000)
+
+    # Cập nhật report với câu trả lời cuối cùng
     report["generated_answer"] = final_answer
 
     # --- 7. HOÀN TẤT VÀ TRẢ VỀ RESPONSE CUỐI CÙNG ---
-    # ... (Phần này giữ nguyên, nhưng đảm bảo bạn trả về biến `final_answer` thay vì `generated_summary` nếu đã đổi tên)
     end_time = time.monotonic()
     report["timings_ms"]["total_pipeline_duration"] = round((end_time - start_time) * 1000)
 
@@ -284,6 +325,6 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
     # Đóng gói mọi thứ vào một response duy nhất
     return {
         "report": report,
-        "generated_answer": final_answer, # TRẢ VỀ BIẾN NÀY
+        "generated_answer": final_answer, 
         "results":final_docs_for_response 
     }
