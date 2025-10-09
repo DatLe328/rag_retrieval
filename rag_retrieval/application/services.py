@@ -155,7 +155,7 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
     docs_to_rerank = []
     for doc in top_candidates:
         props = doc["properties"]
-        parts = [props.get("title") or "", props.get("abstract") or "", (props.get("text") or "")[:4000]]
+        parts = [props.get("title") or "", props.get("abstract") or "", (props.get("content") or "")[:4000]]
         docs_to_rerank.append("\n\n".join(p for p in parts if p.strip()))
     
     report["statistics"]["num_docs_sent_to_reranker"] = len(docs_to_rerank)
@@ -179,7 +179,7 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
             "combined_score": meta.get("combined_score"),
             "reranker_score": score,
             "snippet": text[:500] + "..." if len(text) > 500 else text,
-            "text": text
+            "content": text
         })
     
     report["statistics"]["num_final_results"] = len(final_retrieved_docs)
@@ -200,7 +200,7 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
         context_string = ""
         for i, doc in enumerate(final_retrieved_docs):
             context_string += f"--- Nguồn tài liệu {i+1}: {doc['title']} ---\n"
-            context_string += doc['text']
+            context_string += doc['content']
             context_string += "\n\n"
         
         # 2. Tải prompt từ file và điền thông tin
@@ -232,7 +232,7 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
 
     final_docs_for_response = []
     for doc in final_retrieved_docs:
-        full_text = doc["text"]
+        full_text = doc.get("content") or ""
         final_docs_for_response.append({
             "id": doc["id"],
             "title": doc["title"],
@@ -240,7 +240,7 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
             "keywords": doc["keywords"],
             "combined_score": doc["combined_score"],
             "reranker_score": doc["reranker_score"],
-            "snippet": full_text[:500] + "..." if len(full_text) > 500 else full_text,
+            "content": full_text[:500] + "..." if len(full_text) > 500 else full_text,
         })
 
     # Đóng gói mọi thứ vào một response duy nhất
