@@ -11,16 +11,6 @@ warnings.filterwarnings("ignore", message=".*torch_dtype.*deprecated.*")
 _chat_model, _reranker = None, None
 
 
-def load_prompt_from_file(filepath: str) -> str:
-    """Đọc nội dung từ một file text và trả về dưới dạng string."""
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return f.read()
-    except FileNotFoundError:
-        print(f"Lỗi: Không tìm thấy file prompt tại '{filepath}'")
-        return ""
-
-
 def get_chat_instance(provider, model):
     global _chat_model
     if _chat_model is None:
@@ -187,46 +177,94 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
     end_time = time.monotonic()
     report["timings_ms"]["total_pipeline_duration"] = round((end_time - start_time) * 1000)
 
-    #  6: SINH CÂU TRẢ LỜI CUỐI CÙNG (GENERATION)
-    print("Generating answer")
-    generation_start = time.monotonic()
-    generated_answer = ""
 
-    # Chỉ sinh câu trả lời nếu có tài liệu liên quan được tìm thấy
+    #  6: SINH NỘI DUNG TÓM TẮT (GENERATION)
+    print("Generating summary...")
+    generation_start = time.monotonic()
+    generated_summary = ""
+
+    # Chỉ sinh tóm tắt nếu có tài liệu liên quan được tìm thấy
     if not final_retrieved_docs:
-        generated_answer = "Xin lỗi, tôi không tìm thấy thông tin nào liên quan để trả lời câu hỏi của bạn."
+        generated_summary = ""
     else:
         # 1. Chuẩn bị bối cảnh (Context)
         context_string = ""
         for i, doc in enumerate(final_retrieved_docs):
             context_string += f"--- Nguồn tài liệu {i+1}: {doc['title']} ---\n"
             context_string += doc['content']
+            context_string += f"Từ khóa: {doc['keywords']}"
             context_string += "\n\n"
         
-        # 2. Tải prompt từ file và điền thông tin
-        # THAY THẾ TOÀN BỘ KHỐI ĐỊNH NGHĨA PROMPT CŨ BẰNG CÁC DÒNG NÀY
-        system_prompt = load_prompt_from_file('config/prompt/system_prompt_v3.txt')
-        user_prompt_template = load_prompt_from_file('config/prompt/user_prompt_template.txt')
+        # 2. TẠO PROMPT YÊU CẦU TÓM TẮT VÀ ĐỊNH DẠNG MARKDOWN
+        summarizer_prompt = f"""Bạn là một chuyên gia trình bày thông tin. Nhiệm vụ của bạn là đọc [Kiến thức] và tóm tắt lại các thông tin liên quan đến [Câu hỏi], sau đó trình bày kết quả bằng cú pháp Markdown.
+
+    ### QUY TẮC ĐỊNH DẠNG:
+    - Sử dụng tiêu đề (ví dụ: `## Tiêu đề chính`, `### Tiêu đề phụ`) cho các mục lớn.
+    - Sử dụng dấu gạch đầu dòng (`-`) để liệt kê các đặc điểm, điều kiện, hoặc danh sách.
+    - Sử dụng `**in đậm**` để nhấn mạnh các thuật ngữ quan trọng, các con số hoặc các nhãn dữ liệu (ví dụ: `**Lãi suất:** 15.9%/năm`).
+
+    ### QUY TẮC NỘI DUNG:
+    - Đầu ra của bạn CHỈ ĐƯỢC PHÉP là phần kiến thức đã được tóm tắt và định dạng Markdown.
+    - Tuyệt đối không thêm bất kỳ lời chào, câu dẫn, lời giải thích hay kết luận nào.
+    - Nếu [Kiến thức] không chứa thông tin nào liên quan đến [Câu hỏi], hãy trả về một chuỗi rỗng duy nhất.
+
+    [Câu hỏi]
+    {user_query}
+
+    [Kiến thức]
+    {context_string}
+    """
         
-        user_prompt_for_llm = user_prompt_template.format(
-            context_string=context_string,
-            user_query=user_query
-        )
-
-        # 3. Gọi LLM để sinh câu trả lời (giữ nguyên)
-        # Chỉ gọi generate nếu cả 2 prompt đều được tải thành công
-        if system_prompt and user_prompt_for_llm:
-            generated_answer = chat.generate(user_prompt_for_llm, system_prompt=system_prompt)
+        # 3. Gọi LLM để sinh nội dung tóm tắt
+        if summarizer_prompt:
+            generated_summary = chat.generate(summarizer_prompt)
         else:
-            generated_answer = "Lỗi: Không thể tải được prompt. Vui lòng kiểm tra lại file cấu hình."
-
+            generated_summary = "Lỗi: Không thể tải được prompt. Vui lòng kiểm tra lại file cấu hình."
 
     generation_end = time.monotonic()
-    report["timings_ms"]["answer_generation"] = round((generation_end - generation_start) * 1000)
-    print("Answer generated")
+    report["timings_ms"]["summary_generation"] = round((generation_end - generation_start) * 1000)
+    print("Summary generated.")
 
+    print(generated_summary)
+
+    # --- BƯỚC MỚI: 6.5 KIỂM TRA SỰ PHÙ HỢP CỦA NỘI DUNG TÓM TẮT ---
+    final_answer = generated_summary # Mặc định câu trả lời cuối cùng là bản tóm tắt
+
+    if generated_summary and generated_summary.strip(): # Chỉ kiểm tra nếu bản tóm tắt không rỗng
+        print("Verifying summary relevance...")
+        verification_start = time.monotonic()
+        
+        verifier_prompt = f"""Bạn là một AI chuyên đánh giá sự liên quan. Hãy đọc [Câu hỏi] và [Nội dung tóm tắt] dưới đây. 
+    Nhiệm vụ của bạn là đưa ra kết luận xem [Nội dung tóm tắt] có chứa thông tin trực tiếp để trả lời [Câu hỏi] hay không.
+
+    Hãy trả lời bằng MỘT TỪ DUY NHẤT:
+    - "LIÊN QUAN" nếu nội dung tóm tắt trả lời được câu hỏi.
+    - "KHÔNG LIÊN QUAN" nếu nội dung tóm tắt chỉ nói về chủ đề chung chung nhưng không có thông tin cụ thể để trả lời câu hỏi.
+
+    [Câu hỏi]:
+    {user_query}
+
+    [Nội dung tóm tắt]:
+    {generated_summary}
+    """
+        
+        verification_result = chat.generate(verifier_prompt).strip().upper()
+        
+        # Nếu kết quả kiểm tra là KHÔNG LIÊN QUAN, ghi đè câu trả lời cuối cùng
+        if "KHÔNG LIÊN QUAN" in verification_result:
+            final_answer = "Không có nội dung phù hợp với câu hỏi."
+            print("Verification result: NOT RELEVANT. Overwriting answer.")
+        else:
+            print("Verification result: RELEVANT.")
+            
+        verification_end = time.monotonic()
+        report["timings_ms"]["answer_verification"] = round((verification_end - verification_start) * 1000)
+
+    # Cập nhật tên biến để trả về cho response
+    report["generated_answer"] = final_answer
 
     # --- 7. HOÀN TẤT VÀ TRẢ VỀ RESPONSE CUỐI CÙNG ---
+    # ... (Phần này giữ nguyên, nhưng đảm bảo bạn trả về biến `final_answer` thay vì `generated_summary` nếu đã đổi tên)
     end_time = time.monotonic()
     report["timings_ms"]["total_pipeline_duration"] = round((end_time - start_time) * 1000)
 
@@ -246,6 +284,6 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
     # Đóng gói mọi thứ vào một response duy nhất
     return {
         "report": report,
-        "generated_answer": generated_answer,
+        "generated_answer": final_answer, # TRẢ VỀ BIẾN NÀY
         "results":final_docs_for_response 
     }

@@ -176,7 +176,7 @@ if __name__ == "__main__":
                 Property(name="title", data_type=DataType.TEXT),
                 Property(name="abstract", data_type=DataType.TEXT),
                 Property(name="keywords", data_type=DataType.TEXT_ARRAY),
-                Property(name="text", data_type=DataType.TEXT),
+                Property(name="content", data_type=DataType.TEXT),
                 Property(name="created_date", data_type=DataType.DATE),
             ]
             print(f"[1/2] Tạo lại collection '{collection_name}' ...")
