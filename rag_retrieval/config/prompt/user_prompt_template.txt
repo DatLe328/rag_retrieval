@@ -1,0 +1,8 @@
+**[NGỮ CẢNH]:**
+{context_string}
+---
+
+**CÂU HỎI CỦA NGƯỜI DÙNG:**
+{user_query}
+
+Dựa vào vai trò và các quy tắc đã được chỉ định, hãy trả lời câu hỏi của người dùng.

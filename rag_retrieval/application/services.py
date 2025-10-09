@@ -11,6 +11,16 @@ warnings.filterwarnings("ignore", message=".*torch_dtype.*deprecated.*")
 _chat_model, _reranker = None, None
 
 
+def load_prompt_from_file(filepath: str) -> str:
+    """Đọc nội dung từ một file text và trả về dưới dạng string."""
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        print(f"Lỗi: Không tìm thấy file prompt tại '{filepath}'")
+        return ""
+
+
 def get_chat_instance(provider, model):
     global _chat_model
     if _chat_model is None:
@@ -193,33 +203,28 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
             context_string += doc['text']
             context_string += "\n\n"
         
-        # 2. Tạo Prompt cho LLM
-        system_prompt = (
-            "Bạn là một trợ lý AI chuyên nghiệp, có nhiệm vụ trả lời câu hỏi của người dùng "
-            "dựa trên các tài liệu tham khảo được cung cấp. "
-            "Hãy tuân thủ nghiêm ngặt các quy tắc sau:\n"
-            "1. Chỉ sử dụng thông tin từ phần 'Bối cảnh tham khảo' để trả lời. "
-            "2. Trả lời một cách súc tích, rõ ràng và trực tiếp vào câu hỏi.\n"
-            "3. Nếu thông tin không có trong tài liệu, hãy trả lời là 'Tôi không tìm thấy thông tin để trả lời câu hỏi này trong tài liệu được cung cấp.'\n"
-            "4. Không được bịa đặt thông tin hoặc sử dụng kiến thức bên ngoài.\n"
-            "5. Trả về định dạng markdown."
+        # 2. Tải prompt từ file và điền thông tin
+        # THAY THẾ TOÀN BỘ KHỐI ĐỊNH NGHĨA PROMPT CŨ BẰNG CÁC DÒNG NÀY
+        system_prompt = load_prompt_from_file('config/prompt/system_prompt_v3.txt')
+        user_prompt_template = load_prompt_from_file('config/prompt/user_prompt_template.txt')
+        
+        user_prompt_for_llm = user_prompt_template.format(
+            context_string=context_string,
+            user_query=user_query
         )
 
-        user_prompt_for_llm = (
-            f"Dưới đây là các bối cảnh tham khảo:\n\n"
-            f"{context_string}"
-            f"--- \n\n"
-            f"Dựa vào các tài liệu trên, hãy trả lời câu hỏi sau: {user_query}\n"
-            f"Chỉ cần đưa ra thông tin đúng với câu hỏi thôi đừng thêm các nội dung không cần thiết khác như trích dẫn từ tài liệu nào, theo tài liệu nào."
-            f"Không trả về nội dung lịch sử cuộc trò chuyện hay header truy vấn độc lập được tối ưu hóa."
-        )
+        # 3. Gọi LLM để sinh câu trả lời (giữ nguyên)
+        # Chỉ gọi generate nếu cả 2 prompt đều được tải thành công
+        if system_prompt and user_prompt_for_llm:
+            generated_answer = chat.generate(user_prompt_for_llm, system_prompt=system_prompt)
+        else:
+            generated_answer = "Lỗi: Không thể tải được prompt. Vui lòng kiểm tra lại file cấu hình."
 
-        # 3. Gọi LLM để sinh câu trả lời
-        generated_answer = chat.generate(user_prompt_for_llm, system_prompt=system_prompt)
 
     generation_end = time.monotonic()
     report["timings_ms"]["answer_generation"] = round((generation_end - generation_start) * 1000)
     print("Answer generated")
+
 
     # --- 7. HOÀN TẤT VÀ TRẢ VỀ RESPONSE CUỐI CÙNG ---
     end_time = time.monotonic()

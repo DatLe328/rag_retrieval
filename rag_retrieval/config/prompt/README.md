@@ -1,0 +1,2 @@
+- v1: Không thể đưa ra gợi ý "công ty tôi hoạt động được 2 năm và có doanh thu thuế 700 triệu thì có gói vay nào phù hợp"
+- v2: trả lời nghe không hay "công ty tôi hoạt động được 2 năm và có doanh thu thuế 700 triệu thì có gói vay nào phù hợp"
