@@ -26,21 +26,7 @@ def get_embedding_ollama(text: str, model_name: str = "nomic-embed-text"):
         print(f"❌ Lỗi khi tạo embedding cho text: {e}")
         return []
 
-def summarize_text_ollama(text: str, llm: OllamaChatModel) -> str:
-    """
-    Dùng OllamaChatModel đã khởi tạo để tạo tóm tắt cực ngắn (~20 từ)
-    """
-    try:
-        system_prompt = (
-            "Bạn là trợ lý tóm tắt chính xác. "
-            "Tạo bản tóm tắt ngắn gọn khoảng 20 từ, không mở đầu hay kết luận dư."
-        )
-        user_prompt = f"Tóm tắt nội dung sau trong khoảng 20 từ:\n\n{text[:4000]}"
-        summary = llm.generate(user_prompt=user_prompt, system_prompt=system_prompt)
-        return summary.strip()
-    except Exception as e:
-        print(f"❌ Lỗi khi gọi OllamaChatModel: {e}")
-        return ""
+
 
 # ==============================================================================
 # GOM FILE CHÍNH VÀ FILE KEYWORD

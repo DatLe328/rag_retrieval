@@ -9,10 +9,12 @@ class Chunk:
         chunk_id: str = "",
         start_i: int = 0,
         end_i: int = 0,
+        abstract: str = "", # <--- THÊM DÒNG NÀY
     ):
         self.content = content
         self.title = ""
         self.chunk_id = chunk_id
+        self.abstract = abstract # <--- THÊM DÒNG NÀY
         self.vector = None
         self.doc_uuid = None
         self.pca = [0, 0, 0]
@@ -28,6 +30,7 @@ class Chunk:
             "chunk_id": self.chunk_id,
             "doc_uuid": self.doc_uuid,
             "title": self.title,
+            "abstract": self.abstract,
             "pca": self.pca,
             "start_i": self.start_i,
             "end_i": self.end_i,
@@ -46,6 +49,7 @@ class Chunk:
             end_i=data.get("end_i", 0),
             content_without_overlap=data.get("content_without_overlap", ""),
             labels=data.get("labels", []),
+            abstract=data.get("abstract", ""), # <--- Thêm vào đây
         )
         chunk.doc_uuid = (data.get("doc_uuid", ""),)
         return chunk

@@ -408,6 +408,7 @@ class WeaviateManager:
 
             try:
                 for chunk in document.chunks:
+                    chunk.abstract=document.abstract
                     chunk.doc_uuid = doc_uuid
                     chunk.labels = document.labels
                     chunk.title = document.title
@@ -948,7 +949,6 @@ class WeaviateManager:
                 return response.groups[0].total_count
             else:
                 return 0
-
 
 class ReaderManager:
     def __init__(self):

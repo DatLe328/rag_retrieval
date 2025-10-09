@@ -100,7 +100,6 @@ class VerbaManager:
         try:
             loop = asyncio.get_running_loop()
             start_time = loop.time()
-
             duplicate_uuid = await self.weaviate_manager.exist_document_name(
                 client, fileConfig.filename
             )

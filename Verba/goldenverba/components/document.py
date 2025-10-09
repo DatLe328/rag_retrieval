@@ -4,6 +4,7 @@ from spacy.tokens import Doc
 from spacy.language import Language
 import spacy
 import json
+from goldenverba.utils.summarize import summarize_text_ollama
 
 from langdetect import detect
 
@@ -54,6 +55,7 @@ class Document:
         source: str = "",
         meta: dict = {},
         metadata: str = "",
+        abstract: str = "",
     ):
         self.title = title
         self.content = content
@@ -63,6 +65,7 @@ class Document:
         self.source = source
         self.meta = meta
         self.metadata = metadata
+        self.abstract = abstract
         self.chunks: list[Chunk] = []
 
         MAX_BATCH_SIZE = 500000
@@ -83,7 +86,10 @@ class Document:
             detected_language = detect_language(content)
             nlp = load_nlp_for_language(detected_language)
             doc = nlp(content)
-
+        if not self.abstract and self.content:
+            print("Generating abstract...")
+            self.abstract = summarize_text_ollama(content)
+            print("Abstract: ", self.abstract)
         self.spacy_doc = doc
 
     @staticmethod
@@ -98,6 +104,7 @@ class Document:
             "source": document.source,
             "meta": json.dumps(document.meta),
             "metadata": document.metadata,
+            "abstract": document.abstract,
         }
         return doc_dict
 
@@ -124,6 +131,7 @@ class Document:
                 source=doc_dict.get("source", ""),
                 meta=doc_dict.get("meta", {}),
                 metadata=doc_dict.get("metadata", ""),
+                abstract = doc_dict.get("abstract", ""),
             )
             return document
         else:
