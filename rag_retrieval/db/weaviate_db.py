@@ -37,25 +37,65 @@ class WeaviateManager:
             self.client.collections.create(
                 name=name,
                 properties=properties,
-                vectorizer_config=Configure.Vectorizer.text2vec_ollama(
-                    model="nomic-embed-text",
-                    api_endpoint="http://10.1.1.237:11434",
-                ),
+                # vectorizer_config=Configure.Vectorizer.text2vec_ollama(
+                #     model="nomic-embed-text",
+                #     api_endpoint="http://10.1.1.237:11434",
+                # ),
                 vector_index_config=Configure.VectorIndex.hnsw(
                     distance_metric=wvc.config.VectorDistances.COSINE
                 )
             )
 
-    def add(self, collection_name: str, properties: Dict[str, Any]):
+    # def add(self, collection_name: str, properties: Dict[str, Any]):
+    #     collection = self.client.collections.get(collection_name)
+    #     collection.data.insert(properties=properties)
+    def add(self, collection_name: str, properties: Dict[str, Any], vector: List[float] = None):
         collection = self.client.collections.get(collection_name)
-        collection.data.insert(properties=properties)
+        # Gửi cả properties và vector (nếu có)
+        collection.data.insert(properties=properties, vector=vector)
 
-    def search(self, collection_name: str, query: str, search_type: str, limit: int = 5, properties: List[str] = None) -> List[Dict]:
+    # def search(self, collection_name: str, query: str, search_type: str, limit: int = 5, properties: List[str] = None) -> List[Dict]:
+    #     collection = self.client.collections.get(collection_name)
+        
+    #     if search_type == "vector":
+    #         response = collection.query.near_text(
+    #             query=query, limit=limit, return_metadata=["distance"]
+    #         )
+    #         results = []
+    #         for obj in response.objects:
+    #             distance = getattr(obj.metadata, "distance", None)
+    #             score = 1 - distance if distance is not None else None
+    #             results.append({"uuid": str(obj.uuid), "properties": obj.properties, "score": score, "distance": distance})
+    #         return results
+
+    #     elif search_type == "bm25":
+    #         response = collection.query.bm25(
+    #             query=query, query_properties=properties, limit=limit, return_metadata=MetadataQuery(score=True)
+    #         )
+    #         return [{"uuid": str(obj.uuid), "properties": obj.properties, "score": getattr(obj.metadata, "score", None)} for obj in response.objects]
+    #     else:
+    #         raise ValueError(f"Loại tìm kiếm '{search_type}' không được hỗ trợ.")
+
+    def search(
+        self,
+        collection_name: str,
+        search_type: str,
+        limit: int = 5,
+        query_text: str = None, # Dùng cho bm25
+        query_vector: List[float] = None, # Dùng cho vector search
+        properties: List[str] = None
+    ) -> List[Dict]:
         collection = self.client.collections.get(collection_name)
         
         if search_type == "vector":
-            response = collection.query.near_text(
-                query=query, limit=limit, return_metadata=["distance"]
+            if not query_vector:
+                raise ValueError("Tìm kiếm vector yêu cầu một 'query_vector'.")
+            
+            # SỬ DỤNG near_vector thay cho near_text
+            response = collection.query.near_vector(
+                near_vector=query_vector, 
+                limit=limit, 
+                return_metadata=["distance"]
             )
             results = []
             for obj in response.objects:
@@ -65,30 +105,45 @@ class WeaviateManager:
             return results
 
         elif search_type == "bm25":
+            if not query_text:
+                raise ValueError("Tìm kiếm BM25 yêu cầu một 'query_text'.")
+            
             response = collection.query.bm25(
-                query=query, query_properties=properties, limit=limit, return_metadata=MetadataQuery(score=True)
+                query=query_text, query_properties=properties, limit=limit, return_metadata=MetadataQuery(score=True)
             )
             return [{"uuid": str(obj.uuid), "properties": obj.properties, "score": getattr(obj.metadata, "score", None)} for obj in response.objects]
         else:
             raise ValueError(f"Loại tìm kiếm '{search_type}' không được hỗ trợ.")
 
+
     def hybrid_search(
         self,
         collection_name: str,
-        query: str,
+        query_text: str,
+        query_vector: List[float],
         alpha: float,
         limit: int = 50,
         properties: List[str] = ["title", "abstract", "keywords", "text"]
     ) -> List[Dict[str, Any]]:
         try:
-            hits_bm25 = self.search(collection_name, query, "bm25", limit, properties)
+            hits_bm25 = self.search(collection_name, "bm25", limit, query_text=query_text, properties=properties)
         except Exception:
             hits_bm25 = []
 
         try:
-            hits_vec = self.search(collection_name, query, "vector", limit, properties)
+            # Truyền query_vector vào đây
+            hits_vec = self.search(collection_name, "vector", limit, query_vector=query_vector)
         except Exception:
             hits_vec = []
+        # try:
+        #     hits_bm25 = self.search(collection_name, query, "bm25", limit, properties)
+        # except Exception:
+        #     hits_bm25 = []
+
+        # try:
+        #     hits_vec = self.search(collection_name, query, "vector", limit, properties)
+        # except Exception:
+        #     hits_vec = []
 
         candidates: Dict[str, Dict[str, Any]] = {}
         for h in hits_bm25 + hits_vec:

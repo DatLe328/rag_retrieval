@@ -9,6 +9,23 @@ from goldenverba.components.document import Document
 import requests  # dùng cho Ollama summary API
 from model.wrapper.llm_ollama import OllamaChatModel
 
+
+def get_embedding_ollama(text: str, model_name: str = "nomic-embed-text"):
+    """
+    Gọi API của Ollama để tạo vector embedding cho một đoạn text.
+    """
+    try:
+        # Giả sử Ollama đang chạy tại địa chỉ này
+        response = requests.post(
+            "http://10.1.1.237:11434/api/embeddings",
+            json={"model": model_name, "prompt": text},
+        )
+        response.raise_for_status()
+        return response.json()["embedding"]
+    except Exception as e:
+        print(f"❌ Lỗi khi tạo embedding cho text: {e}")
+        return []
+
 def summarize_text_ollama(text: str, llm: OllamaChatModel) -> str:
     """
     Dùng OllamaChatModel đã khởi tạo để tạo tóm tắt cực ngắn (~20 từ)
@@ -51,10 +68,58 @@ def merge_files(products_data):
 # ==============================================================================
 # CHUNK + EMBEDDING FULL TEXT + SUMMARY + KW
 # ==============================================================================
+# async def chunk_and_add(manager, merged_files):
+#     collection_name = "Papers"
+#     print(f"Sẽ thêm {len(merged_files)} file vào collection '{collection_name}'\n")
+#     llm = OllamaChatModel(model_name="llama3.2:3b")
+#     for item in merged_files:
+#         title = item["filename"]
+#         text = item["text"]
+#         kw_text = item["kw_text"]
+
+#         print(f"→ Đang xử lý file: {title}")
+
+#         # Tạo Document để chunk
+#         document = Document(
+#             title=title,
+#             content=text,
+#             extension=".md",
+#             fileSize=0,
+#             labels=[],
+#             source="",
+#             meta={},
+#             metadata=""
+#         )
+#         chunker = MarkdownChunker()
+#         try:
+#             chunks = await chunker.chunk(chunker.config, [document])
+#         except TypeError:
+#             chunks = await chunker.chunk([document])
+
+#         # Sinh abstract bằng Ollama
+#         abstract = summarize_text_ollama(text,llm)
+
+#         # Ghi từng chunk vào Weaviate
+#         for idx, chunk in enumerate(document.chunks if hasattr(document, "chunks") and document.chunks else chunks):
+#             chunk_data = {
+#                 "title": title,
+#                 "abstract": abstract,
+#                 "text": getattr(chunk, "content", str(chunk)),
+#                 "keywords": [kw_text] if kw_text else [],
+#                 "created_date": datetime.now(timezone.utc).isoformat(),
+#             }
+#             try:
+#                 manager.add(collection_name=collection_name, properties=chunk_data)
+#                 print(f"   ✅ Chunk {idx+1} added.")
+#             except Exception as e:
+#                 print(f"   ❌ Lỗi chunk {idx+1}: {e}")
+# run_add_products.py
+
 async def chunk_and_add(manager, merged_files):
     collection_name = "Papers"
     print(f"Sẽ thêm {len(merged_files)} file vào collection '{collection_name}'\n")
-    llm = OllamaChatModel(model_name="llama3.2:3b")
+    llm = OllamaChatModel(model_name="llama3.2:3b") # Giữ lại để tạo summary
+    
     for item in merged_files:
         title = item["filename"]
         text = item["text"]
@@ -62,38 +127,48 @@ async def chunk_and_add(manager, merged_files):
 
         print(f"→ Đang xử lý file: {title}")
 
-        # Tạo Document để chunk
-        document = Document(
-            title=title,
-            content=text,
-            extension=".md",
-            fileSize=0,
-            labels=[],
-            source="",
-            meta={},
-            metadata=""
-        )
+        # Tạo Document để chunk (giữ nguyên)
+        document = Document(title=title, content=text, extension=".md", fileSize=0, labels=[], source="", meta={}, metadata="")
         chunker = MarkdownChunker()
         try:
             chunks = await chunker.chunk(chunker.config, [document])
         except TypeError:
             chunks = await chunker.chunk([document])
 
-        # Sinh abstract bằng Ollama
-        abstract = summarize_text_ollama(text,llm)
+        # Sinh abstract bằng Ollama (giữ nguyên)
+        abstract = summarize_text_ollama(text, llm)
 
         # Ghi từng chunk vào Weaviate
         for idx, chunk in enumerate(document.chunks if hasattr(document, "chunks") and document.chunks else chunks):
+            chunk_text = getattr(chunk, "content", str(chunk))
+            
+            # 1. TẠO EMBEDDING TỪ PHÍA CLIENT
+            # Kết hợp title và nội dung chunk để embedding tốt hơn
+            text_to_embed = f"Tiêu đề: {title}\nNội dung: {chunk_text}"
+            embedding_vector = get_embedding_ollama(text_to_embed)
+
+            if not embedding_vector:
+                print(f"   ⚠️ Bỏ qua chunk {idx+1} vì không thể tạo embedding.")
+                continue
+
+            # 2. CHUẨN BỊ DỮ LIỆU
             chunk_data = {
                 "title": title,
                 "abstract": abstract,
-                "text": getattr(chunk, "content", str(chunk)),
+                "text": chunk_text,
                 "keywords": [kw_text] if kw_text else [],
                 "created_date": datetime.now(timezone.utc).isoformat(),
             }
+
+            # 3. GỬI DỮ LIỆU KÈM VECTOR
             try:
-                manager.add(collection_name=collection_name, properties=chunk_data)
-                print(f"   ✅ Chunk {idx+1} added.")
+                # Gọi hàm add đã được sửa đổi, truyền cả vector vào
+                manager.add(
+                    collection_name=collection_name, 
+                    properties=chunk_data, 
+                    vector=embedding_vector
+                )
+                print(f"   ✅ Chunk {idx+1} added with its own vector.")
             except Exception as e:
                 print(f"   ❌ Lỗi chunk {idx+1}: {e}")
 
@@ -109,7 +184,7 @@ if __name__ == "__main__":
     merged_files = merge_files(products_data)
 
     try:
-        with WeaviateManager() as manager:
+        with WeaviateManager(host="localhost") as manager:
             collection_name = "Papers"
             properties = [
                 Property(name="title", data_type=DataType.TEXT),

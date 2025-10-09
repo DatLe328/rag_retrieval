@@ -3,6 +3,7 @@ from rag_retrieval.db.weaviate_db import WeaviateManager
 from rag_retrieval.model.model_factory import get_chat_model, get_reranker
 import time
 import warnings
+import requests
 warnings.filterwarnings("ignore", message=".*XLMRobertaTokenizerFast.*")
 warnings.filterwarnings("ignore", message=".*swigvarlink.*")
 warnings.filterwarnings("ignore", message=".*torch_dtype.*deprecated.*")
@@ -22,7 +23,17 @@ def get_reranker_instance(provider, model):
         _reranker = get_reranker(provider=provider, model_name=model)
     return _reranker
 
-
+def get_embedding_ollama(text: str, model_name: str = "nomic-embed-text") -> List[float]:
+    try:
+        response = requests.post(
+            "http://10.1.1.237:11434/api/embeddings", # Thay bằng URL Ollama của bạn
+            json={"model": model_name, "prompt": text},
+        )
+        response.raise_for_status()
+        return response.json()["embedding"]
+    except Exception:
+        return []
+        
 def generate_multi_queries(chat_model, user_query: str, n: int = 5) -> List[str]:
     system_prompt = (
         "You are a query rewriting assistant. Given a user query, produce multiple alternative, "
@@ -96,22 +107,31 @@ def rag_pipeline(user_query: str, multi_n: int, top_k: int, alpha: float,
     candidates: Dict[str, Dict[str, Any]] = {}
     initial_candidate_count = 0
     with WeaviateManager(host=weav_host, http_port=weav_port) as mgr:
-        # Sử dụng truy vấn gốc để có kết quả tốt nhất + các truy vấn phụ
         all_queries = [user_query] + multi_queries
-        for q in list(set(all_queries)): # Dùng set để tránh lặp truy vấn
-            # Giả định bạn đang dùng lại custom_hybrid_search
-            hits = mgr.hybrid_search(weav_collection, q, alpha=alpha, limit=50) 
+        for q in list(set(all_queries)): 
+            # 1. EMBEDDING TRUY VẤN TRƯỚC KHI TÌM KIẾM
+            q_vector = get_embedding_ollama(q)
+            if not q_vector:
+                print(f"Bỏ qua truy vấn '{q}' vì không thể tạo embedding.")
+                continue
+
+            # 2. GỌI hybrid_search VỚI CẢ TEXT VÀ VECTOR
+            hits = mgr.hybrid_search(
+                collection_name=weav_collection, 
+                query_text=q, # Dùng cho BM25
+                query_vector=q_vector, # Dùng cho vector search
+                alpha=alpha, 
+                limit=50
+            )
+            
             initial_candidate_count += len(hits)
             for h in hits:
+                # ... (phần còn lại giữ nguyên)
                 doc_id = h["id"]
-                # Giữ lại ứng viên có điểm số kết hợp cao nhất
                 if doc_id not in candidates or h["combined_score"] > candidates[doc_id]["combined_score"]:
                     props = h.get("properties", {})
-                    candidates[doc_id] = { 
-                        "id": h["id"], 
-                        "properties": props, 
-                        "combined_score": h["combined_score"] 
-                    }
+                    candidates[doc_id] = { "id": h["id"], "properties": props, "combined_score": h["combined_score"] }
+
     retrieval_end = time.monotonic()
     report["timings_ms"]["candidate_retrieval"] = round((retrieval_end - retrieval_start) * 1000)
     report["statistics"]["num_initial_candidates"] = initial_candidate_count
