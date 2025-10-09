@@ -5,4 +5,6 @@
 **CÂU HỎI CỦA NGƯỜI DÙNG:**
 {user_query}
 
-Dựa vào vai trò và các quy tắc đã được chỉ định, hãy trả lời câu hỏi của người dùng.
+Dựa vào vai trò và các quy tắc đã được chỉ định, hãy tóm tắt nội dung ngữ cảnh cho phù hợp với câu hỏi của người dùng
+Nếu người dùng yêu cầu chi tiết về một sản phẩm thì không được tóm tắt
+Nội dung trả về không cần ghi đây là bản tóm tắt thứ mấy hay bản tóm tắt nào hay từ tài liệu nào, chỉ cần trả về nội dung tóm tắt thôi
